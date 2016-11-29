@@ -177,6 +177,8 @@ static slurmdb_qos_rec_t *_determine_and_validate_qos(
 	char *resv_name, slurmdb_assoc_rec_t *assoc_ptr,
 	bool admin, slurmdb_qos_rec_t *qos_rec,	int *error_code, bool locked);
 static void _dump_job_details(struct job_details *detail_ptr, Buf buffer);
+static void _dump_job_fed_details(job_fed_details_t *fed_details_ptr,
+				  Buf buffer);
 static void _dump_job_state(struct job_record *dump_job_ptr, Buf buffer);
 static void _free_job_fed_details(job_fed_details_t **fed_details_pptr);
 static void _get_batch_job_dir_ids(List batch_dirs);
@@ -192,6 +194,8 @@ static void _list_delete_job(void *job_entry);
 static int  _list_find_job_old(void *job_entry, void *key);
 static int  _load_job_details(struct job_record *job_ptr, Buf buffer,
 			      uint16_t protocol_version);
+static int  _load_job_fed_details(job_fed_details_t **fed_details_pptr,
+				  Buf buffer, uint16_t protocol_version);
 static int  _load_job_state(Buf buffer,	uint16_t protocol_version);
 static bitstr_t *_make_requeue_array(char *conf_buf);
 static uint32_t _max_switch_wait(uint32_t input_wait);
@@ -1261,6 +1265,8 @@ static void _dump_job_state(struct job_record *dump_job_ptr, Buf buffer)
 	packstr_array(dump_job_ptr->pelog_env,
 		      dump_job_ptr->pelog_env_size, buffer);
 	pack32(dump_job_ptr->pack_leader, buffer);
+
+	_dump_job_fed_details(dump_job_ptr->fed_details, buffer);
 }
 
 /* Unpack a job's state information from a buffer */
@@ -1318,6 +1324,7 @@ static int _load_job_state(Buf buffer, uint16_t protocol_version)
 	uint32_t pelog_env_size = 0;
 	char **pelog_env = (char **) NULL;
 	uint32_t pack_leader = 0;
+	job_fed_details_t *job_fed_details = NULL;
 
 	memset(&limit_set, 0, sizeof(acct_policy_limit_set_t));
 	limit_set.tres = xmalloc(sizeof(uint16_t) * slurmctld_tres_cnt);
@@ -1518,6 +1525,12 @@ static int _load_job_state(Buf buffer, uint16_t protocol_version)
 		safe_unpackstr_array(&pelog_env, &pelog_env_size,
 				     buffer);
 		safe_unpack32(&pack_leader, buffer);
+
+		if ((error_code = _load_job_fed_details(&job_fed_details,
+							buffer,
+							protocol_version)))
+			goto unpack_error;
+
 	} else if (protocol_version >= SLURM_16_05_PROTOCOL_VERSION) {
 		safe_unpack32(&array_job_id, buffer);
 		safe_unpack32(&array_task_id, buffer);
@@ -2216,6 +2229,7 @@ static int _load_job_state(Buf buffer, uint16_t protocol_version)
 	job_ptr->pelog_env    = pelog_env;
 	job_ptr->pelog_env_size = pelog_env_size;
 	job_ptr->pack_leader  = pack_leader;
+	job_ptr->fed_details  = job_fed_details;
 	return SLURM_SUCCESS;
 
 unpack_error:
@@ -2230,6 +2244,7 @@ unpack_error:
 	xfree(gres_alloc);
 	xfree(gres_req);
 	xfree(gres_used);
+	_free_job_fed_details(&job_fed_details);
 	free_job_resources(&job_resources);
 	xfree(resp_host);
 	xfree(licenses);
@@ -16200,6 +16215,52 @@ static void _free_job_fed_details(job_fed_details_t **fed_details_pptr)
 	}
 }
 
+static void _dump_job_fed_details(job_fed_details_t *fed_details_ptr,
+				  Buf buffer)
+{
+	if (fed_details_ptr) {
+		pack16(1, buffer);
+		pack32(fed_details_ptr->cluster_lock, buffer);
+		packstr(fed_details_ptr->origin_str, buffer);
+		pack64(fed_details_ptr->siblings, buffer);
+		packstr(fed_details_ptr->siblings_str, buffer);
+	} else {
+		pack16(0, buffer);
+	}
+}
+
+static int _load_job_fed_details(job_fed_details_t **fed_details_pptr,
+				 Buf buffer,
+				 uint16_t protocol_version)
+{
+	uint16_t tmp_uint16;
+	uint32_t tmp_uint32;
+	job_fed_details_t *fed_details_ptr = NULL;
+
+	xassert(fed_details_pptr);
+
+	if (protocol_version >= SLURM_17_02_PROTOCOL_VERSION) {
+		safe_unpack16(&tmp_uint16, buffer);
+		if (tmp_uint16) {
+			*fed_details_pptr = xmalloc(sizeof(job_fed_details_t));
+			fed_details_ptr = *fed_details_pptr;
+			safe_unpack32(&fed_details_ptr->cluster_lock, buffer);
+			safe_unpackstr_xmalloc(&fed_details_ptr->origin_str,
+					       &tmp_uint32, buffer);
+			safe_unpack64(&fed_details_ptr->siblings, buffer);
+			safe_unpackstr_xmalloc(&fed_details_ptr->siblings_str,
+					       &tmp_uint32, buffer);
+		}
+	}
+
+	return SLURM_SUCCESS;
+
+unpack_error:
+	_free_job_fed_details(fed_details_pptr);
+	*fed_details_pptr = NULL;
+
+	return SLURM_ERROR;
+}
 
 extern void set_job_fed_details(struct job_record *job_ptr,
 				uint64_t fed_siblings)
