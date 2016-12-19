@@ -313,6 +313,7 @@ s_p_options_t slurm_conf_options[] = {
 	{"SchedulerType", S_P_STRING},
 	{"SelectType", S_P_STRING},
 	{"SelectTypeParameters", S_P_STRING},
+	{"SharingFactor", S_P_DOUBLE},
 	{"SlurmUser", S_P_STRING},
 	{"SlurmdUser", S_P_STRING},
 	{"SlurmctldDebug", S_P_STRING},
@@ -3930,6 +3931,12 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 		xfree(temp_str);
 	} else
 		conf->select_type_param = 0;
+
+	if(!s_p_get_double(&conf->sharing_factor, "SharingFactor", hashtbl))
+		conf->sharing_factor = DEFAULT_SHARING_FACTOR;
+	else
+		debug("readed Sharing Factor: %lf", conf->sharing_factor);
+	
 
 	if (!s_p_get_string( &conf->slurm_user_name, "SlurmUser", hashtbl)) {
 		conf->slurm_user_name = xstrdup("root");

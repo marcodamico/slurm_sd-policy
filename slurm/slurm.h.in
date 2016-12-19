@@ -2707,6 +2707,7 @@ typedef struct slurm_ctl_conf {
 				      * listed with slurm_print_key_pairs() */
 	uint16_t select_type_param; /* Parameters
 				     * describing the select_type plugin */
+        double sharing_factor;/* Marco D'Amico */
 	char *slurm_conf;	/* pathname of slurm config file */
 	uint32_t slurm_user_id;	/* uid of slurm_user_name */
 	char *slurm_user_name;	/* user that slurmctld runs as */
