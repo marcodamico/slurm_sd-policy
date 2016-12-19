@@ -4,7 +4,7 @@ AUTOMAKE_OPTIONS = foreign
 
 PLUGIN_FLAGS = -module -avoid-version --export-dynamic
 
-AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src/common
+AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src/common $(HWLOC_CPPFLAGS) -I$(DLB_HOME)/include
 
 if HAVE_SCHED_SETAFFINITY
 pkglib_LTLIBRARIES = task_affinity.la
@@ -15,7 +15,7 @@ task_affinity_la_SOURCES = 	\
 	numa.c \
 	schedutils.c \
 	task_affinity.c
-task_affinity_la_LDFLAGS = $(SO_LDFLAGS) $(NUMA_LIBS) $(PLUGIN_FLAGS)
+task_affinity_la_LDFLAGS = $(HWLOC_LDFLAGS) $(HWLOC_LIBS) $(SO_LDFLAGS) $(NUMA_LIBS) $(PLUGIN_FLAGS) -L$(DLB_HOME)/lib -ldlb -Wl,-rpath,$(DLB_HOME)/lib
 
 else
 pkglib_LTLIBRARIES =

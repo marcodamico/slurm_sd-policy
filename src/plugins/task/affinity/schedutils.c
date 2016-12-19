@@ -172,3 +172,22 @@ char * cpuset_to_str(const cpu_set_t *mask, char *str)
 	return ret ? ret : ptr - 1;
 }
 
+void cpuset_to_bitstr(bitstr_t *str, const cpu_set_t *set, int n) {
+        int i;
+        debug("In cpuset_to_bitstr");
+        for(i = 0; i < n; i++)
+                if(CPU_ISSET(i,set))
+                        bit_set(str,i);
+                else
+                        bit_clear(str,i);
+}
+
+void bitstr_to_cpuset(cpu_set_t *set, bitstr_t * str, int n) {
+        int i;
+        debug("In bitstr_to_cpuset");
+        for(i = 0; i < n; i++)
+                if(bit_test(str, i))
+                        CPU_SET(i, set);
+                else
+                        CPU_CLR(i, set);
+}

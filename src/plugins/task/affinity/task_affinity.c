@@ -47,9 +47,16 @@
 #include <dirent.h>
 #include <signal.h>
 #include <sys/types.h>
-
+#include <sys/time.h> //for timing
 #include "affinity.h"
 #include "dist_tasks.h"
+#include "src/common/read_config.h"
+
+#include <time.h> //for timing
+#include <sys/time.h> //for timing
+
+#include "DLB_interface.h"
+#define DROM_SYNC_WAIT_USECS 100
 
 /* Enable purging of cpuset directories
  * after each task and the step are done.
@@ -91,6 +98,10 @@ const uint32_t plugin_version   = SLURM_VERSION_NUMBER;
 extern int init (void)
 {
 	debug("%s loaded", plugin_name);
+	/* Marco D'Amico: Init DLB and structures */
+	DLB_Drom_Init();
+	ncpus = DLB_Drom_GetNumCpus();
+	//DLB_Drom_Finalize();
 	return SLURM_SUCCESS;
 }
 
@@ -101,6 +112,7 @@ extern int init (void)
 extern int fini (void)
 {
 	debug("%s unloaded", plugin_name);
+	DLB_Drom_Finalize();
 	return SLURM_SUCCESS;
 }
 
@@ -244,7 +256,19 @@ extern int task_p_slurmd_release_resources (uint32_t job_id)
 	char path[PATH_MAX];
 
 	debug("%s: affinity jobid %u", __func__, job_id);
-
+	struct timeval t1,t2;
+        gettimeofday(&t1, NULL);
+	//DLB_Drom_Init();
+	if(DLB_Drom_reassign_cpus(job_id) != SLURM_SUCCESS) {
+		error("Error in DLB_Drom_reassign_cpus");
+		return SLURM_ERROR;
+	}
+	//DLB_Drom_Finalize();
+	gettimeofday(&t2, NULL);
+        long elapsed = (t2.tv_sec-t1.tv_sec) * 1000000 + t2.tv_usec-t1.tv_usec;
+        elapsed /= 1000;
+	debug("Time taken by DLB_Drom_reassign_cpus: %ld ms", elapsed);
+	
 #if PURGE_CPUSET_DIRS
 	/* NOTE: The notify_on_release flag set in cpuset.c
 	 * should remove the directory, but that is not
@@ -358,6 +382,66 @@ extern int task_p_pre_setuid (stepd_step_rec_t *job)
 	return rc;
 }
 
+int DLB_Drom_wait_for_dependencies(stepd_step_rec_t *job) {
+	List			steps;
+	ListIterator		ii;
+	step_loc_t		*s = NULL;
+	int 			fd, counter = 0,index, steps_count, *ready_vector;
+	slurmstepd_state_t 	status;
+
+	steps = stepd_available(conf->spooldir, conf->node_name);
+        ii = list_iterator_create(steps);
+	steps_count = list_count(steps);
+	ready_vector = (int *) xmalloc(sizeof(int) * steps_count);
+	
+	for(index = 0; index < steps_count; index++)
+		ready_vector[index] = 0;
+
+        while (counter != steps_count) {
+		index = 0;
+		list_iterator_reset(ii);
+
+		while ((s = list_next(ii))) {
+			if(ready_vector[index] == 1) {
+				index++;
+				continue;
+			}
+			//skip batch, job itself and next jobs
+			if(s->jobid >= job->jobid || s->stepid == NO_VAL) {
+				ready_vector[index] = 1;
+				index++;
+				counter++;
+				continue;
+			}
+			fd = stepd_connect(s->directory, s->nodename,
+                                           s->jobid, s->stepid,
+                                           &s->protocol_version);
+
+			if (fd == -1) {
+                                error("Can't communicate with stepd");
+                                break;
+                	}
+			status = stepd_state(fd, s->protocol_version);
+			if(status == SLURMSTEPD_STEP_RUNNING || status == SLURMSTEPD_STEP_ENDING) {
+				debug("step %d.%d is running", s->jobid, s->stepid);
+				counter++;
+				ready_vector[index] = 1;
+			}
+			else
+				debug("step %d.%d is still not running", s->jobid, s->stepid);
+			index++;
+		}
+
+		if(counter != steps_count)
+			usleep(DROM_SYNC_WAIT_USECS);
+	}
+
+	list_iterator_destroy(ii);
+        FREE_NULL_LIST(steps);
+	xfree(ready_vector);
+	return SLURM_SUCCESS;
+}
+
 /*
  * task_p_pre_launch() is called prior to exec of application task.
  *	It is followed by TaskProlog program (from slurm.conf) and
@@ -463,6 +547,25 @@ extern int task_p_pre_launch (stepd_step_rec_t *job)
 		slurm_chk_memset(&cur_mask, job);
 	}
 #endif
+	if(!job->batch) {
+		struct timeval t1,t2;
+		cpu_set_t cur_mask;        	
+		long elapsed;
+		gettimeofday(&t1, NULL);
+
+		DLB_Drom_wait_for_dependencies(job);
+
+		slurm_getaffinity(job->envtp->task_pid, sizeof(cur_mask), &cur_mask);
+		if(DLB_Drom_PreRegister(job->envtp->task_pid, &cur_mask, 1)) {
+			debug("Error pre registering DROM mask");
+			rc = SLURM_ERROR;
+		}
+
+		gettimeofday(&t2, NULL);
+        	elapsed = (t2.tv_sec-t1.tv_sec) * 1000000 + t2.tv_usec-t1.tv_usec;
+        	elapsed /= 1000;
+        	debug("Time taken by pre_launch DROM part: %ld ms", elapsed);
+	}
 	return rc;
 }
 
