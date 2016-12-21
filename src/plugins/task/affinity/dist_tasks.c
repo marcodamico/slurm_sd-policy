@@ -464,12 +464,12 @@ void sort_by_values(int *vector, float *values, int n) {
 		debug("proc %d: %f", vector[i], values[vector[i]]);
 }
 
-int steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *conflict_mask, cpu_set_t *non_free_mask, cpu_set_t *final_mask) {
+List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *conflict_mask, cpu_set_t *non_free_mask, cpu_set_t *final_mask) {
 	int stolen, tot_stolen = 0, to_steal, i, j;
         cpu_set_t steal_mask;
 	float *values;
 	int  *ordered, *max_steal, nordered;
-	
+	List job_dependencies = list_create(NULL);
 	values = xmalloc(sizeof(float) * n_active_procs);
 	ordered = xmalloc(sizeof(int) * n_active_procs);
 	max_steal = xmalloc(sizeof(int) * n_active_procs);
@@ -507,6 +507,7 @@ int steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confli
 				tot_stolen += stolen;
 				cpu_steal_infos[j]->got_stolen += stolen;
 				values[j] -= stolen;
+				list_append(job_dependencies, &cpu_steal_infos[j]->job_id);
                 	}
                	 	else {
                         	values[j] = -1;
@@ -520,9 +521,8 @@ int steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confli
 	xfree(max_steal);
 
         steal_infos->nsteals = tot_stolen;
-        return SLURM_SUCCESS;
+        return job_dependencies;
 }
-
 void cpu_steal_info_init(cpu_steal_info_t **infos) {
 	int i;
 
@@ -684,7 +684,7 @@ int get_necessary_masks(launch_tasks_request_msg_t *req, uint32_t node_id, cpu_s
         return SLURM_SUCCESS;
 }
 
-void wait_for_dependent_processes() {
+/*void wait_for_dependent_processes() {
 	int dlb_pids[MAX_PROCS], npids;
 	        DLB_Drom_GetPidList(dlb_pids, &npids, MAX_PROCS);
 	while(n_active_procs > npids) {
@@ -692,7 +692,7 @@ void wait_for_dependent_processes() {
 		usleep(DROM_SYNC_WAIT_USECS);	
 		DLB_Drom_GetPidList(dlb_pids, &npids, MAX_PROCS);
 	}
-}
+}*/
 
 int DLB_Drom_steal_cpus(launch_tasks_request_msg_t *req, uint32_t node_id) {
         int tot_steal, final_steal, cpus_per_task = 0;
@@ -736,14 +736,12 @@ int DLB_Drom_steal_cpus(launch_tasks_request_msg_t *req, uint32_t node_id) {
         steal_infos->task_dist = req->task_dist;
 	steal_infos->original_cpt = req->cpus_per_task;
         steal_infos->assigned_cpt = cpus_per_task;
-	
+
+	List job_dependencies;
+
 	if(final_steal != 0) {
-		if(steal_cpus(steal_infos, final_steal, &conflict_mask, &non_free_mask, final_mask) != SLURM_SUCCESS)
-		{
-        		debug("Error in steal_cpus");
-			cpu_steal_info_destroy(steal_infos);
-			return SLURM_ERROR;
-		}
+		job_dependencies = steal_cpus(steal_infos, final_steal, &conflict_mask, &non_free_mask, final_mask);
+		req->job_dependencies = job_dependencies;
 		debug("Steal complete!");
 	}
         

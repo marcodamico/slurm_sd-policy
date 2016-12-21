@@ -382,13 +382,19 @@ extern int task_p_pre_setuid (stepd_step_rec_t *job)
 	return rc;
 }
 
+static int _jobs_equal(void *x, void *key) {
+	int *job1 = x, job2 = key;
+	if(job1 == job2)
+		return 1;
+	return 0;
+}
 int DLB_Drom_wait_for_dependencies(stepd_step_rec_t *job) {
 	List			steps;
 	ListIterator		ii;
 	step_loc_t		*s = NULL;
 	int 			fd, counter = 0,index, steps_count, *ready_vector;
 	slurmstepd_state_t 	status;
-
+		
 	steps = stepd_available(conf->spooldir, conf->node_name);
         ii = list_iterator_create(steps);
 	steps_count = list_count(steps);
@@ -406,8 +412,10 @@ int DLB_Drom_wait_for_dependencies(stepd_step_rec_t *job) {
 				index++;
 				continue;
 			}
-			//skip batch, job itself and next jobs
-			if(s->jobid >= job->jobid || s->stepid == NO_VAL) {
+			//skip batch, job itself,next jobs and not dependent jobs
+			if(s->jobid >= job->jobid || s->stepid == NO_VAL ||
+			  (job->job_dependencies && list_find_first(
+			   job->job_dependencies, _jobs_equal, &s->jobid) != NULL)) {
 				ready_vector[index] = 1;
 				index++;
 				counter++;

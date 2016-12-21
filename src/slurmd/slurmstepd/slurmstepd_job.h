@@ -156,6 +156,7 @@ typedef struct {
 	mem_bind_type_t mem_bind_type; /* --mem_bind=                       */
 	char          *mem_bind;       /* binding map for tasks to memory   */
 	uint16_t accel_bind_type;  /* --accel_bind= */
+	List 	 job_dependencies;
 	uint32_t cpu_freq_min; /* Minimum cpu frequency  */
 	uint32_t cpu_freq_max; /* Maximum cpu frequency  */
 	uint32_t cpu_freq_gov; /* cpu frequency governor */

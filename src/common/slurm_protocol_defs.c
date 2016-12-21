@@ -943,6 +943,8 @@ extern void slurm_free_launch_tasks_request_msg(launch_tasks_request_msg_t * msg
 	xfree(msg->cwd);
 	xfree(msg->cpu_bind);
 	xfree(msg->mem_bind);
+	if(msg->job_dependencies)
+		list_destroy(msg->job_dependencies);
 	if (msg->argv) {
 		for (i = 0; i < msg->argc; i++) {
 			xfree(msg->argv[i]);

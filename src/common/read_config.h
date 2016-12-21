@@ -163,6 +163,7 @@ extern char *default_plugstack;
 #else
 #  define DEFAULT_SELECT_TYPE       "select/linear"
 #endif
+#define DEFAULT_SHARING_FACTOR	    0
 #define DEFAULT_SLURMCTLD_PIDFILE   "/var/run/slurmctld.pid"
 #define DEFAULT_SLURMCTLD_TIMEOUT   120
 #define DEFAULT_SLURMD_PIDFILE      "/var/run/slurmd.pid"

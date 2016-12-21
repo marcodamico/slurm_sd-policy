@@ -754,6 +754,7 @@ typedef struct launch_tasks_request_msg {
 	uint16_t accel_bind_type; /* --accel-bind= */
 	uint16_t  num_resp_port;
 	uint16_t  *resp_port;   /* array of available response ports      */
+	List	job_dependencies;
 
         /* Distribution at the lowest level of logical processor (lllp) */
 	uint32_t task_dist;  /* --distribution=, -m dist	*/
