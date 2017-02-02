@@ -72,6 +72,7 @@
 #include "src/common/slurm_resource_info.h"
 #include "src/common/xassert.h"
 #include "src/common/xmalloc.h"
+#include "src/common/read_config.h"	/* Marco: adder in order to read SharingFactor  */
 
 #include "src/slurmctld/slurmctld.h"
 #include "src/slurmctld/preempt.h"
@@ -658,7 +659,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 		uint16_t cpu_free = cpu_cnt;
 		uint16_t cpu_missing;
 		uint16_t cpu_requested;
-		
+		debug("%d cpus on node %d, sf = %d, stealable cpus = %d", cpu_free, i, DLB_share_factor, cpu_stealable);	
 		job_iterator = list_iterator_create(job_list);
 		while ((job_ptr = (struct job_record *) list_next(job_iterator)) && cpu_stealable > 0) {
 			if (!IS_JOB_RUNNING(job_ptr)) {
