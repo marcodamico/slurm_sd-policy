@@ -607,7 +607,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 			gres_cpus *= cpus_per_core;
 			if ((gres_cpus < cpu_cnt) ||
 			    (gres_cpus < job_ptr->details->ntasks_per_node) ||
-			    ((job_ptr->details->cpus_per_task > 1) &&
+			    ((job_ptr->details->t_ffscpus_per_task > 1) &&
 			     (gres_cpus < job_ptr->details->cpus_per_task))) {
 				bit_clear(jobmap, i);
 				continue;
@@ -648,6 +648,44 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 			bit_clear(jobmap, i);
 			continue;
 		}
+		/* Marco: discard nodes where is not possible to steal more cpus */
+		slurm_ctl_conf_t *config = slurm_conf_lock();
+                DLB_share_factor = config->sharing_factor;
+                slurm_conf_unlock();
+		ListIterator job_iterator;
+		struct job_record *job_ptr;
+		uint16_t cores_stealable = cores_cnt * DLB_share_factor;
+		uint16_t cores_free = cores_cnt;
+		uint16_t cores_missing;
+		
+		job_iterator = list_iterator_create(job_list);
+		while ((job_ptr = (struct job_record *) list_next(job_iterator)) && cores_stealable > 0) {
+			if (!IS_JOB_RUNNING(job_ptr)) {
+				debug("Job %d not running", job_ptr->job_id);
+				continue;
+			if(job_ptr->node_bitmap && bit_test(job_ptr->node_bitmap, i)) {
+				cores_requested = job_ptr->cpus_per_task * job_ptr->ntasks_per_node;
+				debug("Job %d running on node %d", job_ptr->job_id, i);
+				//should I consider Jobs that start with reduced cpt
+				if (cores_requested < cores_free)
+                                        cores_free -= cores_requested;
+                                else { //steal was necessary
+                                        cores_missing = cores_requested - cores_free;
+					while (cores_missing > cores_stealable)
+						cores_missing -= job_ptr->ntasks_per_node; 
+                                        assert((cores_missing + cores_free) >= job_record_ptr->ntasks_per_node) //if node was allocated for this job means
+														//that we allocated at least the min 
+														//number of cpus (ntasks_per_node)
+                                        cores_stealable -= cores_missing;
+                                        cores_free = 0;
+                                }
+			}
+		}
+		if(cores_free + cores_stealable > job_ptr->ntasks_per_node) {
+			bit_clear(jobmap, i);
+			debug("Job %d cannot be allocated on node %d for lack of stealable cpus", job_ptr->job_id, i);
+			continue;
+		}
 
 		total_jobs = 0;
 		total_run_jobs = 0;
@@ -657,6 +695,8 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 			total_jobs     += part_cr_ptr->tot_job_cnt;
 			part_cr_ptr = part_cr_ptr->next;
 		}
+		
+		/* Marco: TODO: what about threads per core?  */
 		if ((total_run_jobs <= run_job_cnt) &&
 		    (total_jobs     <= tot_job_cnt)) {
 			bit_set(jobmap, i);
@@ -780,7 +820,7 @@ static int _job_test(struct job_record *job_ptr, bitstr_t *bitmap,
 
 	for (index = 0; index < select_node_cnt; index++) {
 		if (bit_test(bitmap, index)) {
-			if (consec_nodes[consec_index] == 0)
+			if (consec_nodet_fit_cpus[consec_index] == 0)
 				consec_start[consec_index] = index;
 			avail_cpus = _get_avail_cpus(job_ptr, index);
 			if (job_ptr->details->req_node_bitmap	&&
