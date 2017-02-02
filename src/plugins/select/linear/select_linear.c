@@ -653,28 +653,28 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
                 float DLB_share_factor = config->sharing_factor;
                 slurm_conf_unlock();
 		ListIterator job_iterator;
-		struct job_record *job_ptr;
+		struct job_record *job_rec_ptr;
 		uint16_t cpu_stealable = cpu_cnt * DLB_share_factor;
 		uint16_t cpu_free = cpu_cnt;
 		uint16_t cpu_missing;
 		uint16_t cpu_requested;
 		
 		job_iterator = list_iterator_create(job_list);
-		while ((job_ptr = (struct job_record *) list_next(job_iterator)) && cpu_stealable > 0) {
-			if (!IS_JOB_RUNNING(job_ptr)) {
-				debug("Job %d not running", job_ptr->job_id);
+		while ((job_rec_ptr = (struct job_record *) list_next(job_iterator)) && cpu_stealable > 0) {
+			if (!IS_JOB_RUNNING(job_rec_ptr)) {
+				debug("Job %d not running", job_rec_ptr->job_id);
 				continue;
 			}
-			if(job_ptr->node_bitmap && bit_test(job_ptr->node_bitmap, i)) {
-				cpu_requested = job_ptr->details->cpus_per_task * job_ptr->details->ntasks_per_node;
-				debug("Job %d running on node %d", job_ptr->job_id, i);
+			if(job_rec_ptr->node_bitmap && bit_test(job_rec_ptr->node_bitmap, i)) {
+				cpu_requested = job_rec_ptr->details->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
+				debug("Job %d running on node %d", job_rec_ptr->job_id, i);
 				//should I consider Jobs that start with reduced cpt
 				if (cpu_requested < cpu_free)
                                         cpu_free -= cpu_requested;
                                 else { //steal was necessary
                                         cpu_missing = cpu_requested - cpu_free;
 					while (cpu_missing > cpu_stealable)
-						cpu_missing -= job_ptr->details->ntasks_per_node; 
+						cpu_missing -= job_rec_ptr->details->ntasks_per_node; 
                                         assert((cpu_missing + cpu_free) >= job_record_ptr->ntasks_per_node);    //if node was allocated for this job means
 														//that we allocated at least the min 
 														//number of cpus (ntasks_per_node)
