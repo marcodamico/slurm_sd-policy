@@ -650,7 +650,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 		}
 		/* Marco: discard nodes where is not possible to steal more cpus */
 		slurm_ctl_conf_t *config = slurm_conf_lock();
-                uint16_t DLB_share_factor = config->sharing_factor;
+                float DLB_share_factor = config->sharing_factor;
                 slurm_conf_unlock();
 		ListIterator job_iterator;
 		struct job_record *job_ptr;
