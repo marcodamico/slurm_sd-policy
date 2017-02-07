@@ -683,7 +683,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
                                 }
 			}
 		}
-		if(cpu_free + cpu_stealable > job_ptr->details->ntasks_per_node) {
+		if(cpu_free + cpu_stealable < job_ptr->details->ntasks_per_node) {
 			bit_clear(jobmap, i);
 			debug("Job %d cannot be allocated on node %d for lack of stealable cpus", job_ptr->job_id, i);
 			continue;
