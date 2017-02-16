@@ -649,6 +649,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 			continue;
 		}
 		/* Marco: discard nodes where is not possible to steal more cpus */
+		/* Marco: TODO: what about threads per core?  */
 		slurm_ctl_conf_t *config = slurm_conf_lock();
                 float DLB_share_factor = config->sharing_factor;
                 slurm_conf_unlock();
@@ -698,7 +699,6 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 			part_cr_ptr = part_cr_ptr->next;
 		}
 		
-		/* Marco: TODO: what about threads per core?  */
 		if ((total_run_jobs <= run_job_cnt) &&
 		    (total_jobs     <= tot_job_cnt)) {
 			bit_set(jobmap, i);
@@ -709,6 +709,153 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 
 	}
 	return count;
+}
+
+static void swap(void *v[], int i, int j)
+{
+	void *tmp;
+
+	tmp = v[i];
+	v[i] = v[j];
+	v[j] = tmp;
+	
+}
+
+int cmpdouble(void *x, void *y)
+{
+	double xx = *(double*)x, yy = *(double*)y;
+	if (xx < yy) return -1;
+	if (xx > yy) return  1;
+	return 0;
+}
+
+static void qsort(void *v[], void *w[], void *x[], void * y[],  int left, int right, int (*comp)(void *, void *))
+{
+	int i, last;
+
+	if (left >= right)
+        	return;
+    	swap(v, left, (left + right)/2);
+    	swap(w, left, (left + right)/2);
+	swap(x, left, (left + right)/2);
+	swap(y, left, (left + right)/2);
+	last = left;
+    	for (i = left+1; i <= right; i++)
+        	if ((*comp)(v[i], v[left]) < 0)
+		{
+            		swap(v, ++last, i);
+			swap(w, last, i);
+			swap(x, last, i);
+			swap(y, last, i);
+    		}
+	swap(v, left, last);
+	swap(w, left, last);
+	swap(x, left, last);
+	swap(y, left, last);
+    	qsort(v, w, x, y, left, last-1, comp);
+	qsort(v, w, x, y, last+1, right, comp);
+}
+
+/* TODO: improve this */
+static int _evaluate_penalty(struct job_record *job_scan_ptr, uint32_t req_nodes)
+{
+	if(job_scan_ptr->node_cnt > req_nodes)
+		return job_scan_ptr->node_cnt / req_nodes;
+	return 1;
+}
+
+void *memdup(const void *mem, size_t size) { 
+   void *dest = xmalloc(size);
+
+   if(dest != NULL)
+       memcpy(dest, mem, size);
+
+   return dest;
+}
+
+static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
+                          uint32_t min_nodes, uint32_t max_nodes,
+                          uint32_t req_nodes)
+{
+	ListIterator job_iterator;
+	struct job_record *job_scan_ptr;
+	int rc = EINVAL;
+	int njobs;
+	job_iterator = list_iterator_create(job_list);
+        njobs = list_count(job_list);
+	
+	struct job_record **ptrs = xmalloc(sizeof(struct job_record *) * njobs);
+	int **x = xmalloc(sizeof(int *) * njobs);
+	int **v = xmalloc(sizeof(int *) * njobs);
+	int **w = xmalloc(sizeof(int *) * njobs);
+	double **y = xmalloc(sizeof(double *) * njobs);
+	int i = 0, tmp_nodes = 0;
+	int selected = 0;
+	/* Init parallel vectors */
+	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
+		
+		if (!IS_JOB_RUNNING(job_scan_ptr)){
+			njobs--;
+			continue;
+		}
+		if (job_scan_ptr->details && job_ptr->details &&
+                    (job_scan_ptr->details->contiguous !=
+                     job_ptr->details->contiguous)) {
+			njobs--;
+		        continue;
+		}
+                if (job_ptr->details->req_node_bitmap &&
+                    (!bit_super_set(job_ptr->details->req_node_bitmap,
+                                    job_scan_ptr->node_bitmap))) {
+			njobs--;
+			continue;       /* Required nodes missing from job */
+		}
+                if (job_ptr->details->exc_node_bitmap &&
+                    (bit_overlap(job_ptr->details->exc_node_bitmap,
+                                 job_scan_ptr->node_bitmap) != 0)) {
+                	njobs--;
+		        continue;       /* Excluded nodes in this job */
+		}
+		int vv = _evaluate_penalty(job_scan_ptr, req_nodes);
+		v[i] = memdup((void *) &vv, sizeof(int));
+		ptrs[i] = job_scan_ptr;
+		w[i] = memdup((void *)&job_scan_ptr->node_cnt, sizeof(int));
+		x[i] = memdup((void *)&selected, sizeof(int));
+		double yy = (double)(*v[i]) / (*w[i]);
+		y[i] = memdup((void *)&yy, sizeof(double));
+		debug("insert %d %d %d %f", ptrs[i]->job_id, *w[i], *x[i], *y[i]);
+		i++;
+	}
+	qsort((void *)y,(void *)w, (void *)v, (void *)ptrs, 0, njobs-1, cmpdouble);
+	for(i = 0; i < njobs; i++)
+		debug("%d %f %d", ptrs[i]->job_id, *y[i], *w[i]);
+	for (i = 0; i < njobs && tmp_nodes < req_nodes; i++) {
+		*x[i] = 1;
+		debug("took job %d", ptrs[i]->job_id);
+		tmp_nodes += *w[i];		
+	}
+	if(tmp_nodes > req_nodes)
+		debug("Allocating more nodes than requested");
+	if(tmp_nodes < req_nodes) {
+		debug("not enough nodes can be shared");
+		return rc;
+	}
+	bitstr_t * tmp_bitmap = bit_alloc(bit_size(bitmap));
+	for(i=0; i < njobs; i++)
+		if(*x[i]) {
+			debug("job %d is a mate", ptrs[i]->job_id);
+			bit_or(tmp_bitmap, ptrs[i]->node_bitmap);
+		}
+	bit_and(bitmap, tmp_bitmap); 
+	bit_free(tmp_bitmap);
+	list_iterator_destroy(job_iterator);
+	xfree(x);
+	xfree(y);
+	xfree(w);
+	xfree(v);
+	xfree(ptrs);
+	rc = SLURM_SUCCESS;
+	return rc;
 }
 
 /* _find_job_mate - does most of the real work for select_p_job_test(),
@@ -746,7 +893,7 @@ static int _find_job_mate(struct job_record *job_ptr, bitstr_t *bitmap,
 		    (bit_overlap(job_ptr->details->exc_node_bitmap,
 				 job_scan_ptr->node_bitmap) != 0))
 			continue;	/* Excluded nodes in this job */
-
+		
 		bit_and(bitmap, job_scan_ptr->node_bitmap);
 		job_ptr->total_cpus = job_scan_ptr->total_cpus;
 		rc = SLURM_SUCCESS;
@@ -3248,14 +3395,25 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 			if (max_run_job > 0) {
 				/* We need to share. Try to find
 				 * suitable job to share nodes with */
-				rc = _find_job_mate(job_ptr, bitmap,
-						    min_nodes,
-						    max_nodes, req_nodes);
-				if (rc == SLURM_SUCCESS)
+				rc = _find_job_mates(job_ptr, bitmap, 
+                                                    min_nodes,
+                                                    max_nodes, req_nodes);
+                 /* TODO:Should I consider the application balanced? 
+                 * what if the application is a master - slave type, balanced is not the general case
+                 */
+//				rc = _find_job_mate(job_ptr, bitmap,
+//						    min_nodes,
+//						    max_nodes, req_nodes);
+				if (rc == SLURM_SUCCESS) {
+					debug("job %d found a mate", job_ptr->job_id);
 					break;
+				}
 			}
+			debug("calling job_test");
 			rc = _job_test(job_ptr, bitmap, min_nodes, max_nodes,
 				       req_nodes);
+			if(rc == SLURM_SUCCESS)
+				debug("_job_test returned SUCCESS");
 		}
 	}
 
