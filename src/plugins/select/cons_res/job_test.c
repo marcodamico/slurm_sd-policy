@@ -2806,6 +2806,21 @@ static void _block_whole_nodes(bitstr_t *node_bitmap,
 	}
 }
 
+/* Marco D'Amico: */
+
+static void _filter_full_nodes() 
+{
+
+}
+
+static int _find_job_mates(struct job_record *job_ptr, uint32_t min_nodes, 
+			  uint32_t max_nodes, uint32_t req_nodes,
+			  bitstr_t *bitmap)
+{
+	int rc = EINVAL;
+	
+}
+
 /* cr_job_test - does most of the real work for select_p_job_test(), which
  *	includes contiguous selection, load-leveling and max_share logic
  *
@@ -3275,6 +3290,13 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	 * optimizes "job overlap" between this job (in these idle nodes)
 	 * and existing jobs in the other partitions with <= priority to
 	 * this partition */
+
+	/* Marco: at this point we have node_bitmap with the map of shared nodes */
+	_filter_full_nodes();//TODO: dopo dovrei chiamare _select_nodes??
+	if(_find_job_mates(job_ptr, min_nodes, max_nodes, req_nodes, 
+			   node_bitmap) != SLURM_SUCCESS)
+		debug("cons_res: cr_job_test: not able to find a mate for this job");
+
 
 alloc_job:
 	/* at this point we've found a good set of

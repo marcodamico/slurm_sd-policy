@@ -104,6 +104,9 @@ struct node_use_record {
 	List gres_list;			/* list of gres state info managed by 
 					 * plugins */
 	uint16_t node_state;		/* see node_cr_state comments */
+	/*TODO: correct values */
+        uint16_t free_cpus;             /* not allocated cpus in the node */
+        uint16_t stealable_cpus;        /* number of cpus that can be stolen */
 };
 
 extern bool     backfill_busy_nodes;
