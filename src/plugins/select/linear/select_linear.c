@@ -793,8 +793,9 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	int selected = 0;
 	/* Init parallel vectors */
 	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
-		
-		if (!IS_JOB_RUNNING(job_scan_ptr)){
+			
+		if (!IS_JOB_RUNNING(job_scan_ptr) ||
+		    !bit_super_set(job_scan_ptr->node_bitmap, bitmap)){
 			njobs--;
 			continue;
 		}
@@ -849,7 +850,12 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	bit_and(bitmap, tmp_bitmap); 
 	bit_free(tmp_bitmap);
 	list_iterator_destroy(job_iterator);
-	xfree(x);
+	for(i = 0; i < njobs; i++) {
+		xfree(x[i]);
+		xfree(y[i]);
+		xfree(w[i]);
+		xfree(v[i]);
+	}
 	xfree(y);
 	xfree(w);
 	xfree(v);
