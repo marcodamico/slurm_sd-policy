@@ -83,6 +83,8 @@
 #define RUN_JOB_INCR	16
 #define SELECT_DEBUG	0
 
+int MAX_PENALTY = 5;
+int MIX_WITH_FREE = 1;
 /* These are defined here so when we link with something other than
  * the slurmctld we will have these symbols defined.  They will get
  * overwritten when linking with the slurmctld.
@@ -649,6 +651,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 			continue;
 		}
 		/* Marco: discard nodes where is not possible to steal more cpus */
+		//_filter_occupied_nodes();	
 		/* Marco: TODO: what about threads per core?  */
 		slurm_ctl_conf_t *config = slurm_conf_lock();
                 float DLB_share_factor = config->sharing_factor;
@@ -774,7 +777,8 @@ void *memdup(const void *mem, size_t size) {
 }
 
 static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
-                          uint32_t min_nodes, uint32_t max_nodes,
+                          bitstr_t *free_nodes_map,
+			  uint32_t min_nodes, uint32_t max_nodes,
                           uint32_t req_nodes)
 {
 	ListIterator job_iterator;
@@ -795,6 +799,9 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
 			
 		if (!IS_JOB_RUNNING(job_scan_ptr) ||
+		/* If not a super set means the job has been discarded
+		 * by _job_count_bitmap, i.e. no cpus to steal
+		 */
 		    !bit_super_set(job_scan_ptr->node_bitmap, bitmap)){
 			njobs--;
 			continue;
@@ -818,6 +825,11 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		        continue;       /* Excluded nodes in this job */
 		}
 		int vv = _evaluate_penalty(job_scan_ptr, req_nodes);
+		
+		if(vv > MAX_PENALTY) {
+                        njobs--;
+                        continue;       /* Job already penalized too much */
+                }
 		v[i] = memdup((void *) &vv, sizeof(int));
 		ptrs[i] = job_scan_ptr;
 		w[i] = memdup((void *)&job_scan_ptr->node_cnt, sizeof(int));
@@ -835,20 +847,35 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		debug("took job %d", ptrs[i]->job_id);
 		tmp_nodes += *w[i];		
 	}
+
+	bitstr_t * tmp_bitmap = NULL;
+
 	if(tmp_nodes > req_nodes)
 		debug("Allocating more nodes than requested");
+	
 	if(tmp_nodes < req_nodes) {
 		debug("not enough nodes can be shared");
-		return rc;
-	}
-	bitstr_t * tmp_bitmap = bit_alloc(bit_size(bitmap));
-	for(i=0; i < njobs; i++)
-		if(*x[i]) {
-			debug("job %d is a mate", ptrs[i]->job_id);
-			bit_or(tmp_bitmap, ptrs[i]->node_bitmap);
+		if(MIX_WITH_FREE) {
+			debug("adding free nodes");
+			tmp_bitmap = bit_copy(free_nodes_map);
+			if(bit_set_count(bitmap) < req_nodes) {
+				debug("still not enough :(");
+			}
 		}
-	bit_and(bitmap, tmp_bitmap); 
-	bit_free(tmp_bitmap);
+	}
+	else
+		tmp_bitmap = bit_alloc(bit_size(bitmap));
+	
+	if(tmp_bitmap != NULL) {
+		for(i=0; i < njobs; i++)
+			if(*x[i]) {
+				debug("job %d is a mate", ptrs[i]->job_id);
+				bit_or(tmp_bitmap, ptrs[i]->node_bitmap);
+			}
+		bit_and(bitmap, tmp_bitmap);
+		bit_free(tmp_bitmap);
+		rc = SLURM_SUCCESS;
+	}
 	list_iterator_destroy(job_iterator);
 	for(i = 0; i < njobs; i++) {
 		xfree(x[i]);
@@ -860,7 +887,6 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	xfree(w);
 	xfree(v);
 	xfree(ptrs);
-	rc = SLURM_SUCCESS;
 	return rc;
 }
 
@@ -3365,7 +3391,7 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 		    List *preemptee_job_list)
 {
 
-	bitstr_t *orig_map;
+	bitstr_t *orig_map, *free_nodes_map = NULL;
 	int max_run_job, j, sus_jobs, rc = EINVAL, prev_cnt = -1;
 	struct job_record *tmp_job_ptr;
 	ListIterator job_iterator, preemptee_iterator;
@@ -3395,6 +3421,8 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 				xfree(node_list);
 			}
 #endif
+			if (max_run_job == 0 && j < min_nodes)
+                                free_nodes_map = bit_copy(bitmap);
 			if ((j == prev_cnt) || (j < min_nodes))
 				continue;
 			prev_cnt = j;
@@ -3402,7 +3430,7 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 				/* We need to share. Try to find
 				 * suitable job to share nodes with */
 				rc = _find_job_mates(job_ptr, bitmap, 
-                                                    min_nodes,
+                                                    free_nodes_map, min_nodes,
                                                     max_nodes, req_nodes);
                  /* TODO:Should I consider the application balanced? 
                  * what if the application is a master - slave type, balanced is not the general case
@@ -3415,6 +3443,7 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 					break;
 				}
 			}
+				
 			debug("calling job_test");
 			rc = _job_test(job_ptr, bitmap, min_nodes, max_nodes,
 				       req_nodes);
@@ -3505,7 +3534,8 @@ top:	if ((rc != SLURM_SUCCESS) && preemptee_candidates &&
 	if (rc == SLURM_SUCCESS)
 		_build_select_struct(job_ptr, bitmap);
 	FREE_NULL_BITMAP(orig_map);
-
+	if(free_nodes_map != NULL)
+		FREE_NULL_BITMAP(free_nodes_map);
 	return rc;
 }
 
