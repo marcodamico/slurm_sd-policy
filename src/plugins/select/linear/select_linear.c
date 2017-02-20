@@ -84,7 +84,7 @@
 #define SELECT_DEBUG	0
 
 int MAX_PENALTY = 5;
-int MIX_WITH_FREE = 1;
+int MIX_WITH_FREE = 0;
 /* These are defined here so when we link with something other than
  * the slurmctld we will have these symbols defined.  They will get
  * overwritten when linking with the slurmctld.
@@ -732,36 +732,32 @@ int cmpdouble(void *x, void *y)
 	return 0;
 }
 
-static void qsort(void *v[], void *w[], void *x[], void * y[],  int left, int right, int (*comp)(void *, void *))
+static void qsort(void *x[], void * y[],  int left, int right, int (*comp)(void *, void *))
 {
 	int i, last;
 
 	if (left >= right)
         	return;
-    	swap(v, left, (left + right)/2);
-    	swap(w, left, (left + right)/2);
 	swap(x, left, (left + right)/2);
 	swap(y, left, (left + right)/2);
 	last = left;
     	for (i = left+1; i <= right; i++)
         	if ((*comp)(v[i], v[left]) < 0)
 		{
-            		swap(v, ++last, i);
-			swap(w, last, i);
-			swap(x, last, i);
+			swap(x, ++last, i);
 			swap(y, last, i);
     		}
-	swap(v, left, last);
-	swap(w, left, last);
 	swap(x, left, last);
 	swap(y, left, last);
-    	qsort(v, w, x, y, left, last-1, comp);
-	qsort(v, w, x, y, last+1, right, comp);
+    	qsort(x, y, left, last-1, comp);
+	qsort(x, y, last+1, right, comp);
 }
 
 /* TODO: improve this */
 static int _evaluate_penalty(struct job_record *job_scan_ptr, uint32_t req_nodes)
 {
+	//TODO: I can check how many cpus i can use/steal in allocated nodes
+	//	if i can't steal max penalize this job!!!
 	if(job_scan_ptr->node_cnt > req_nodes)
 		return job_scan_ptr->node_cnt / req_nodes;
 	return 1;
@@ -774,6 +770,29 @@ void *memdup(const void *mem, size_t size) {
        memcpy(dest, mem, size);
 
    return dest;
+}
+
+int _find_mates(int *x, job_record **ptrs, int njobs, int req_nodes, bitstr_t *tmp_bitmap, bitstr_t *free_nodes_map, int exceed_alloc)
+{
+	int tmp_nodes = 0;
+	if(free_nodes_map != NULL) {
+		bit_or(tmp_bitmap, free_nodes_map);
+		tmp_nodes = bit_set_count(tmp_bitmap);
+	}
+	for (i = 0; i < njobs && tmp_nodes < req_nodes; i++) {
+                new_nodes = bit_size(ptrs[i]->node_bitmap) - bit_overlap(tmp_bitmap, ptrs[i]->node_bitmap);
+                if(!exceed_alloc && (new_nodes + tmp_nodes) > req_nodes)
+			continue;
+                x[i] = 1;
+                debug("took job %d", ptrs[i]->job_id);
+                tmp_nodes += new_nodes;
+                bit_or(tmp_bitmap, ptrs[i]->node_bitmap);
+		
+                //TODO: some jobs share the same nodes, i should check it before assigning x
+                //or if i select a job mate i should select all job mates sharing same res
+        }
+	
+	return tmp_nodes;
 }
 
 static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
@@ -789,7 +808,7 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
         njobs = list_count(job_list);
 	
 	struct job_record **ptrs = xmalloc(sizeof(struct job_record *) * njobs);
-	int **x = xmalloc(sizeof(int *) * njobs);
+	int *x = xmalloc(sizeof(int) * njobs);
 	int **v = xmalloc(sizeof(int *) * njobs);
 	int **w = xmalloc(sizeof(int *) * njobs);
 	double **y = xmalloc(sizeof(double *) * njobs);
@@ -830,62 +849,51 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
                         njobs--;
                         continue;       /* Job already penalized too much */
                 }
-		v[i] = memdup((void *) &vv, sizeof(int));
+//		v[i] = memdup((void *) &vv, sizeof(int));
 		ptrs[i] = job_scan_ptr;
-		w[i] = memdup((void *)&job_scan_ptr->node_cnt, sizeof(int));
-		x[i] = memdup((void *)&selected, sizeof(int));
-		double yy = (double)(*v[i]) / (*w[i]);
+//		w[i] = memdup((void *)&job_scan_ptr->node_cnt, sizeof(int));
+		x[i] = 0;
+		double yy = (double) (vv / job_scan_ptr->node_cnt);
 		y[i] = memdup((void *)&yy, sizeof(double));
-		debug("insert %d %d %d %f", ptrs[i]->job_id, *w[i], *x[i], *y[i]);
+		debug("insert %d %d %f", ptrs[i]->job_id, job_scan_ptr->node_cnt, *y[i]);
 		i++;
 	}
-	qsort((void *)y,(void *)w, (void *)v, (void *)ptrs, 0, njobs-1, cmpdouble);
+	qsort((void *)y, (void *)ptrs, 0, njobs-1, cmpdouble);
+	
 	for(i = 0; i < njobs; i++)
-		debug("%d %f %d", ptrs[i]->job_id, *y[i], *w[i]);
-	for (i = 0; i < njobs && tmp_nodes < req_nodes; i++) {
-		*x[i] = 1;
-		debug("took job %d", ptrs[i]->job_id);
-		tmp_nodes += *w[i];		
-	}
+		debug("%d %f %d", ptrs[i]->job_id, *y[i], ptrs[i]->node_cnt);
 
 	bitstr_t * tmp_bitmap = NULL;
-
-	if(tmp_nodes > req_nodes)
-		debug("Allocating more nodes than requested");
+	tmp_bitmap = bit_alloc(bit_size(bitmap));
+	bit_clear_all(tmp_bitmap);
+	//try exact match
+	tmpnodes = _find_mates(x, ptrs, w, njobs, req_nodes , tmp_bitmap, NULL, false, x, ptrs, );
 	
+	//try including bigger jobs
 	if(tmp_nodes < req_nodes) {
-		debug("not enough nodes can be shared");
-		if(MIX_WITH_FREE) {
-			debug("adding free nodes");
-			tmp_bitmap = bit_copy(free_nodes_map);
-			if(bit_set_count(bitmap) < req_nodes) {
-				debug("still not enough :(");
-			}
-		}
+		debug("Trying to allocate a superse of requested nodes");
+		bit_clear_all(tmp_bitmap);
+		tmpnodes = _find_mates(x, ptrs, w, njobs, req_nodes , tmp_bitmap, NULL, true, x, ptrs, );
 	}
-	else
-		tmp_bitmap = bit_alloc(bit_size(bitmap));
+
+	//try with free nodes
+	if( MIX_WITH_FREE && tmp_nodes < req_nodes) {
+		debug("adding free nodes");
+		bit_clear_all(tmp_bitmap);
+		tmpnodes = _find_mates(x, ptrs, njobs, req_nodes , tmp_bitmap, free_nodes_map, true, x, ptrs, );
+	}
 	
-	if(tmp_bitmap != NULL) {
-		for(i=0; i < njobs; i++)
-			if(*x[i]) {
-				debug("job %d is a mate", ptrs[i]->job_id);
-				bit_or(tmp_bitmap, ptrs[i]->node_bitmap);
-			}
+	if(tmp_nodes >= req_nodes) {
 		bit_and(bitmap, tmp_bitmap);
 		bit_free(tmp_bitmap);
 		rc = SLURM_SUCCESS;
 	}
 	list_iterator_destroy(job_iterator);
 	for(i = 0; i < njobs; i++) {
-		xfree(x[i]);
 		xfree(y[i]);
-		xfree(w[i]);
-		xfree(v[i]);
 	}
+	xfree(x);
 	xfree(y);
-	xfree(w);
-	xfree(v);
 	xfree(ptrs);
 	return rc;
 }
@@ -3439,16 +3447,18 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 //						    min_nodes,
 //						    max_nodes, req_nodes);
 				if (rc == SLURM_SUCCESS) {
-					debug("job %d found a mate", job_ptr->job_id);
+					debug("job %d found mates", job_ptr->job_id);
 					break;
 				}
 			}
-				
-			debug("calling job_test");
-			rc = _job_test(job_ptr, bitmap, min_nodes, max_nodes,
-				       req_nodes);
-			if(rc == SLURM_SUCCESS)
-				debug("_job_test returned SUCCESS");
+			/* We don't call job test if we didn't find mates */			
+			if(max_run_job == 0) {
+				debug("calling job_test");
+				rc = _job_test(job_ptr, bitmap, min_nodes, 
+					       max_nodes, req_nodes);
+				if(rc == SLURM_SUCCESS)
+					debug("_job_test returned SUCCESS");
+			}
 		}
 	}
 
