@@ -84,7 +84,7 @@
 #define SELECT_DEBUG	0
 
 int MAX_PENALTY = 5;
-int MIX_WITH_FREE = 0;
+int MIX_WITH_FREE = 1;
 /* These are defined here so when we link with something other than
  * the slurmctld we will have these symbols defined.  They will get
  * overwritten when linking with the slurmctld.
@@ -742,7 +742,7 @@ static void qsort(void *x[], void * y[],  int left, int right, int (*comp)(void 
 	swap(y, left, (left + right)/2);
 	last = left;
     	for (i = left+1; i <= right; i++)
-        	if ((*comp)(v[i], v[left]) < 0)
+        	if ((*comp)(x[i], x[left]) < 0)
 		{
 			swap(x, ++last, i);
 			swap(y, last, i);
@@ -772,20 +772,23 @@ void *memdup(const void *mem, size_t size) {
    return dest;
 }
 
-int _find_mates(int *x, job_record **ptrs, int njobs, int req_nodes, bitstr_t *tmp_bitmap, bitstr_t *free_nodes_map, int exceed_alloc)
+int _find_mates(int *x, struct job_record **ptrs, int njobs, int req_nodes, bitstr_t *tmp_bitmap, bitstr_t *free_nodes_map, int exceed_alloc)
 {
 	int tmp_nodes = 0;
+	int i, new_nodes;	
 	if(free_nodes_map != NULL) {
 		bit_or(tmp_bitmap, free_nodes_map);
 		tmp_nodes = bit_set_count(tmp_bitmap);
 	}
+
 	for (i = 0; i < njobs && tmp_nodes < req_nodes; i++) {
-                new_nodes = bit_size(ptrs[i]->node_bitmap) - bit_overlap(tmp_bitmap, ptrs[i]->node_bitmap);
+                new_nodes = bit_set_count(ptrs[i]->node_bitmap) - bit_overlap(tmp_bitmap, ptrs[i]->node_bitmap);
                 if(!exceed_alloc && (new_nodes + tmp_nodes) > req_nodes)
 			continue;
                 x[i] = 1;
                 debug("took job %d", ptrs[i]->job_id);
                 tmp_nodes += new_nodes;
+		debug("tmp_nodes = %d, new_nodes = %d ", tmp_nodes, new_nodes);
                 bit_or(tmp_bitmap, ptrs[i]->node_bitmap);
 		
                 //TODO: some jobs share the same nodes, i should check it before assigning x
@@ -809,11 +812,9 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	
 	struct job_record **ptrs = xmalloc(sizeof(struct job_record *) * njobs);
 	int *x = xmalloc(sizeof(int) * njobs);
-	int **v = xmalloc(sizeof(int *) * njobs);
-	int **w = xmalloc(sizeof(int *) * njobs);
 	double **y = xmalloc(sizeof(double *) * njobs);
 	int i = 0, tmp_nodes = 0;
-	int selected = 0;
+	
 	/* Init parallel vectors */
 	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
 			
@@ -858,6 +859,7 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		debug("insert %d %d %f", ptrs[i]->job_id, job_scan_ptr->node_cnt, *y[i]);
 		i++;
 	}
+
 	qsort((void *)y, (void *)ptrs, 0, njobs-1, cmpdouble);
 	
 	for(i = 0; i < njobs; i++)
@@ -866,28 +868,30 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	bitstr_t * tmp_bitmap = NULL;
 	tmp_bitmap = bit_alloc(bit_size(bitmap));
 	bit_clear_all(tmp_bitmap);
+
 	//try exact match
-	tmpnodes = _find_mates(x, ptrs, w, njobs, req_nodes , tmp_bitmap, NULL, false, x, ptrs, );
+	tmp_nodes = _find_mates(x, ptrs, njobs, req_nodes, tmp_bitmap, NULL, false);
 	
 	//try including bigger jobs
 	if(tmp_nodes < req_nodes) {
-		debug("Trying to allocate a superse of requested nodes");
+		debug("Trying to allocate a superset of requested nodes");
 		bit_clear_all(tmp_bitmap);
-		tmpnodes = _find_mates(x, ptrs, w, njobs, req_nodes , tmp_bitmap, NULL, true, x, ptrs, );
+		tmp_nodes = _find_mates(x, ptrs, njobs, req_nodes, tmp_bitmap, NULL, true);
 	}
 
 	//try with free nodes
 	if( MIX_WITH_FREE && tmp_nodes < req_nodes) {
-		debug("adding free nodes");
+		debug("adding free nodes to available nodes");
 		bit_clear_all(tmp_bitmap);
-		tmpnodes = _find_mates(x, ptrs, njobs, req_nodes , tmp_bitmap, free_nodes_map, true, x, ptrs, );
+		tmp_nodes = _find_mates(x, ptrs, njobs, req_nodes, tmp_bitmap, free_nodes_map, true);
 	}
 	
 	if(tmp_nodes >= req_nodes) {
+		debug("Found mates!");
 		bit_and(bitmap, tmp_bitmap);
-		bit_free(tmp_bitmap);
 		rc = SLURM_SUCCESS;
 	}
+	bit_free(tmp_bitmap);
 	list_iterator_destroy(job_iterator);
 	for(i = 0; i < njobs; i++) {
 		xfree(y[i]);

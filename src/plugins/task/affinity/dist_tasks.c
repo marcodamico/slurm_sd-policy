@@ -443,26 +443,29 @@ void get_conflict_masks(cpu_set_t *req_set, int nsets, cpu_set_t *conflict_mask)
         debug("In get_conflict_masks");
 
 	CPU_ZERO(conflict_mask);
-        for(i = 0; i < nsets; i++) {
-                for(j = 0; j < n_active_jobs; j++) {
-			for(k = 0; k < cpu_steal_infos[j]->ntasks; k++)
+        for(i = 0; i < nsets; i++)
+                for(j = 0; j < n_active_jobs; j++)
+			for(k = 0; k < cpu_steal_infos[j]->ntasks; k++) {
 				//AND to get CPUs in common between DLB processes and new Job
                         	CPU_AND(&mask, &req_set[i], &cpu_steal_infos[j]->assigned_mask[k]);
 				//OR to add it to conflict mask
                         	CPU_OR(conflict_mask, &mask, conflict_mask);
-                }
-        }
+			}
 }
 
 int steal_cpus_from_proc(int index, int proc_index, cpu_steal_info_t *steal_infos, cpu_set_t *steal_mask, cpu_set_t *final_mask, cpu_set_t *conflict_mask, int to_steal) {
         int i, k, stolen = 0;
 	cpu_steal_info_t *victim = cpu_steal_infos[index];
-		
+	char str[CPU_SETSIZE+1];
 	debug("In steal_cpus_from_proc");
 	//try to give consecutive cpus TODO:implement some isolated first policy? (give isolated cpus first) (or steal from less occupied socket first (if to_steal is low enough)
         for(i = ncpus - 1; i >= 0; i--) {
-                if(stolen == to_steal)
-                        break;
+		cpuset_to_str(steal_mask, str);
+		debug("steal_mask: %s", str);
+                if(stolen == to_steal) {
+                	debug("got %d CPUs, exiting steal_cpus_from_proc", stolen);
+		        break;
+		}
                 if(!CPU_ISSET(i, steal_mask))
                         continue;
                 debug("Trying to steal CPU %d",i);
@@ -502,19 +505,19 @@ int steal_cpus_from_proc(int index, int proc_index, cpu_steal_info_t *steal_info
         }
 	return stolen;
 }
-
+//TODO: a paritá di value, ordina per numero di cpus consecutive
 void sort_by_values(int *vector, float *values, int n) {
 	int i,j;
 	float tmp;
 
-	for(i = 0; i < n -1; i++)
-		for(j = 0; j< n-i-1; j++)
-			if(values[vector[j]] > values[vector[j+1]]) {
+	for (i = 0; i < n -1; i++)
+		for (j = 0; j< n-i-1; j++)
+			if (values[vector[j]] > values[vector[j+1]]) {
 				tmp = vector[j];
 				vector[j] = vector[j+1];
 				vector[j+1] = tmp;
 			}
-	for(i=0;i<n;i++)
+	for (i = 0; i < n; i++)
 		debug("proc %d: %f", vector[i], values[vector[i]]);
 }
 
@@ -523,11 +526,13 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
         cpu_set_t steal_mask;
 	float *values;
 	int  *ordered, *max_steal, nordered;
+	int max_steal_per_task;
 	List job_dependencies = list_create(NULL);
 	values = xmalloc(sizeof(float) * n_active_procs);
 	ordered = xmalloc(sizeof(int) * n_active_procs);
 	max_steal = xmalloc(sizeof(int) * n_active_procs);
 	nordered = n_active_procs;
+	char str[CPU_SETSIZE+1];
 
 	debug("In steal_cpus");
         for(j = 0; j < n_active_jobs; j++) {
@@ -542,11 +547,24 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
 	sort_by_values(ordered,values,nordered);
 	while(tot_stolen < final_steal && nordered > 0) {
 		j = ordered[nordered-1];
-		for(i = 0; i < cpu_steal_infos[j]->ntasks; i++) {
+		max_steal_per_task = max_steal[j] / cpu_steal_infos[j]->ntasks;
+		for(i = 0; i < cpu_steal_infos[j]->ntasks && tot_stolen < final_steal; i++) {
 			//TODO:we can steal first on one socket, than on second, to group steal, we simply need to filter conflict mask
+			//TODO:bring this out, we are at task level here, not job level, 
+			//     max_steal got stolen and nsteals are at job level!!!
 			CPU_AND(&steal_mask, &cpu_steal_infos[j]->assigned_mask[i], conflict_mask);
+                	cpuset_to_str(&steal_mask, str);
+                	debug("steal_mask: %s", str);	
+			cpuset_to_str(&cpu_steal_infos[j]->assigned_mask[i], str);
+                        debug("assigned_mask: %s", str);
+			cpuset_to_str(conflict_mask, str);
+                        debug("conflict_mask: %s", str);
 			to_steal = values[j] > 1 ? values[j] : 1;
 
+			if(to_steal > max_steal_per_task);
+				to_steal = max_steal_per_task;
+			//TODO:bring this out, we are at task level here, not job level, 
+                        //     max_steal got stolen and nsteals are at job level!!!
 			if(to_steal + cpu_steal_infos[j]->got_stolen + cpu_steal_infos[j]->nsteals > max_steal[j])
 				to_steal = max_steal[j] - cpu_steal_infos[j]->got_stolen - cpu_steal_infos[j]->nsteals;
 			if(to_steal == CPU_COUNT(&cpu_steal_infos[j]->assigned_mask[i])) {
@@ -555,7 +573,7 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
                 	}
 
 			if((to_steal + tot_stolen) > final_steal)
-                        to_steal = final_steal - tot_stolen;
+                        	to_steal = final_steal - tot_stolen;
 		
 			debug("requested %d cpus already in use, stealing %d from step %d.%d, value: %f", final_steal, to_steal, cpu_steal_infos[j]->job_id, i, values[j]);
                 	stolen = steal_cpus_from_proc(j, i, steal_infos, &steal_mask, final_mask, conflict_mask, to_steal);
@@ -1173,6 +1191,11 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 						}
 					}
 					debug("mask of pid %d changed, maxc = %d", pids[k], maxc);
+					char mask[1 + CPU_SETSIZE / 4];
+					cpuset_to_str(&cpu_steal_infos[i]->assigned_mask[match], mask);
+					debug("new mask: %s", mask);
+					cpuset_to_str(&dlb_masks[k], mask);
+					debug("old mask: %s", mask);
 					if(DLB_Drom_SetProcessMask(pids[k],(dlb_cpu_set_t) &cpu_steal_infos[i]->assigned_mask[match])) {
                                			debug("Failed to set DROM process mask of %d",pids[j]);
                                			xfree(dlb_masks);
@@ -1208,7 +1231,6 @@ int DLB_Drom_reassign_cpus(uint32_t job_id)
                 }
 
         to_destroy = cpu_steal_infos[job_index];
-	debug("destroying job %d", to_destroy->job_id);
         if(job_index < (n_active_jobs-1) && n_active_jobs != 1)
                 cpu_steal_infos[job_index] = cpu_steal_infos[n_active_jobs-1];
         n_active_jobs--;
@@ -1223,7 +1245,7 @@ int DLB_Drom_reassign_cpus(uint32_t job_id)
 		debug("cpus returned!");
 		changes = 1;
 	}
-	if(n_active_jobs != 0) {
+	if(n_active_jobs != 0 && CPU_COUNT(&non_free_mask) < ncpus) {
 		if(DLB_Drom_expand_jobs(&non_free_mask) != SLURM_SUCCESS) {
 			error("DLB_Drom_expand_jobs failed");
 			return SLURM_ERROR;
