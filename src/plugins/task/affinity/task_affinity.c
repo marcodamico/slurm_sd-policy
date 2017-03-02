@@ -564,14 +564,19 @@ extern int task_p_pre_launch (stepd_step_rec_t *job)
 		DLB_Drom_wait_for_dependencies(job);
 
 		slurm_getaffinity(job->envtp->task_pid, sizeof(cur_mask), &cur_mask);
-		char **p = job->env - 2;
-		if(DLB_Drom_PreInit(job->envtp->task_pid, &cur_mask, 1, &p)) {
+		//char **p = job->env - 2;
+		char **Drom_env = (char **) malloc(sizeof(char*));
+		Drom_env[0] = NULL;
+
+		if(DLB_Drom_PreInit(job->envtp->task_pid, &cur_mask, 1, &Drom_env)) {
 			debug("Error pre registering DROM mask");
 			rc = SLURM_ERROR;
 		}
 		//TODO:update size in p[1]
-		p[1] = p[1] + 2; 
-		job->env = p + 2;
+		//p[1] = p[1] + 2; 
+		//job->env = p + 2;
+		env_array_merge(&job->env, Drom_env);
+		free(env);
 		gettimeofday(&t2, NULL);
         	elapsed = (t2.tv_sec-t1.tv_sec) * 1000000 + t2.tv_usec-t1.tv_usec;
         	elapsed /= 1000;
