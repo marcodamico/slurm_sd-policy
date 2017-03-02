@@ -41,5 +41,5 @@
 
 void batch_bind(batch_job_launch_msg_t *req);
 void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id);
-
+int DLB_Drom_reassign_cpus(uint32_t job_id);
 #endif /* !_SLURMSTEPD_DIST_TASKS_H */

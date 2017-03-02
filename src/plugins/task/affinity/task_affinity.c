@@ -383,8 +383,8 @@ extern int task_p_pre_setuid (stepd_step_rec_t *job)
 }
 
 static int _jobs_equal(void *x, void *key) {
-	int *job1 = x, job2 = key;
-	if(job1 == job2)
+	int *job1 = x, *job2 = key;
+	if(*job1 == *job2)
 		return 1;
 	return 0;
 }
@@ -412,7 +412,7 @@ int DLB_Drom_wait_for_dependencies(stepd_step_rec_t *job) {
 				index++;
 				continue;
 			}
-			//skip batch, job itself,next jobs and not dependent jobs
+			//skip batch, job itself, next jobs and not dependent jobs
 			if(s->jobid >= job->jobid || s->stepid == NO_VAL ||
 			  (job->job_dependencies && list_find_first(
 			   job->job_dependencies, _jobs_equal, &s->jobid) != NULL)) {
@@ -564,11 +564,14 @@ extern int task_p_pre_launch (stepd_step_rec_t *job)
 		DLB_Drom_wait_for_dependencies(job);
 
 		slurm_getaffinity(job->envtp->task_pid, sizeof(cur_mask), &cur_mask);
-		if(DLB_Drom_PreRegister(job->envtp->task_pid, &cur_mask, 1)) {
+		char **p = job->env - 2;
+		if(DLB_Drom_PreInit(job->envtp->task_pid, &cur_mask, 1, &p)) {
 			debug("Error pre registering DROM mask");
 			rc = SLURM_ERROR;
 		}
-
+		//TODO:update size in p[1]
+		p[1] = p[1] + 2; 
+		job->env = p + 2;
 		gettimeofday(&t2, NULL);
         	elapsed = (t2.tv_sec-t1.tv_sec) * 1000000 + t2.tv_usec-t1.tv_usec;
         	elapsed /= 1000;
@@ -632,6 +635,11 @@ extern int task_p_post_term (stepd_step_rec_t *job, stepd_step_task_info_t *task
 		return SLURM_ERROR;
 	}
 #endif
+	
+	if(DLB_Drom_PostFinalize(job->envtp->task_pid, 0)) {
+		debug("Failure in DLB_Drom_PostFinalize");
+		return SLURM_ERROR;
+	}
 
 	return SLURM_SUCCESS;
 }
