@@ -396,8 +396,9 @@ int DLB_Drom_wait_for_dependencies(stepd_step_rec_t *job) {
 	slurmstepd_state_t 	status;
 		
 	steps = stepd_available(conf->spooldir, conf->node_name);
-        ii = list_iterator_create(steps);
+	ii = list_iterator_create(steps);
 	steps_count = list_count(steps);
+	debug("%d steps available", steps_count);
 	ready_vector = (int *) xmalloc(sizeof(int) * steps_count);
 	
 	for(index = 0; index < steps_count; index++)
@@ -566,7 +567,7 @@ extern int task_p_pre_launch (stepd_step_rec_t *job)
 		slurm_getaffinity(job->envtp->task_pid, sizeof(cur_mask), &cur_mask);
 		//char **p = job->env - 2;
 		char **Drom_env = (char **) malloc(sizeof(char*));
-		Drom_env[0] = NULL;
+		*Drom_env = NULL;
 
 		if(DLB_Drom_PreInit(job->envtp->task_pid, &cur_mask, 1, &Drom_env)) {
 			debug("Error pre registering DROM mask");
@@ -575,8 +576,8 @@ extern int task_p_pre_launch (stepd_step_rec_t *job)
 		//TODO:update size in p[1]
 		//p[1] = p[1] + 2; 
 		//job->env = p + 2;
-		env_array_merge(&job->env, Drom_env);
-		free(env);
+		env_array_merge(&job->env, (const char **)Drom_env);
+		free(Drom_env);
 		gettimeofday(&t2, NULL);
         	elapsed = (t2.tv_sec-t1.tv_sec) * 1000000 + t2.tv_usec-t1.tv_usec;
         	elapsed /= 1000;
@@ -640,8 +641,8 @@ extern int task_p_post_term (stepd_step_rec_t *job, stepd_step_task_info_t *task
 		return SLURM_ERROR;
 	}
 #endif
-	
-	if(DLB_Drom_PostFinalize(job->envtp->task_pid, 0)) {
+	if(!job->batch &&
+		DLB_Drom_PostFinalize(job->envtp->task_pid, 0)) {
 		debug("Failure in DLB_Drom_PostFinalize");
 		return SLURM_ERROR;
 	}

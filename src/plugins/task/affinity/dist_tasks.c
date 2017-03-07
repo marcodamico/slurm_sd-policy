@@ -547,15 +547,24 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
 	sort_by_values(ordered,values,nordered);
 	while(tot_stolen < final_steal && nordered > 0) {
 		j = ordered[nordered-1];
+		float *procs = xmalloc(sizeof(float) * cpu_steal_infos[j]->ntasks);
+		int *ordered_procs = xmalloc(sizeof(int) * cpu_steal_infos[j]->ntasks);
+		
+		for(i = 0; i < cpu_steal_infos[j]->ntasks; i++) {
+			procs[i] = (float) CPU_COUNT(&cpu_steal_infos[j]->assigned_mask[i]);
+			ordered_procs[i] = i;
+		}
+		sort_by_values(ordered_procs, procs, cpu_steal_infos[j]->ntasks);
 		max_steal_per_task = max_steal[j] / cpu_steal_infos[j]->ntasks;
 		for(i = 0; i < cpu_steal_infos[j]->ntasks && tot_stolen < final_steal; i++) {
 			//TODO:we can steal first on one socket, than on second, to group steal, we simply need to filter conflict mask
 			//TODO:bring this out, we are at task level here, not job level, 
 			//     max_steal got stolen and nsteals are at job level!!!
-			CPU_AND(&steal_mask, &cpu_steal_infos[j]->assigned_mask[i], conflict_mask);
+			int index = ordered_procs[cpu_steal_infos[j]->ntasks - 1 - i];
+			CPU_AND(&steal_mask, &cpu_steal_infos[j]->assigned_mask[index], conflict_mask);
                 	cpuset_to_str(&steal_mask, str);
                 	debug("steal_mask: %s", str);	
-			cpuset_to_str(&cpu_steal_infos[j]->assigned_mask[i], str);
+			cpuset_to_str(&cpu_steal_infos[j]->assigned_mask[index], str);
                         debug("assigned_mask: %s", str);
 			cpuset_to_str(conflict_mask, str);
                         debug("conflict_mask: %s", str);
@@ -567,16 +576,16 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
                         //     max_steal got stolen and nsteals are at job level!!!
 			if(to_steal + cpu_steal_infos[j]->got_stolen + cpu_steal_infos[j]->nsteals > max_steal[j])
 				to_steal = max_steal[j] - cpu_steal_infos[j]->got_stolen - cpu_steal_infos[j]->nsteals;
-			if(to_steal == CPU_COUNT(&cpu_steal_infos[j]->assigned_mask[i])) {
-                        	debug("Trying to steal all cpus from proc %d.%d", cpu_steal_infos[j]->job_id, i);
+			if(to_steal == CPU_COUNT(&cpu_steal_infos[j]->assigned_mask[index])) {
+                        	debug("Trying to steal all cpus from proc %d.%d", cpu_steal_infos[j]->job_id, index);
                         	to_steal--;
                 	}
 
 			if((to_steal + tot_stolen) > final_steal)
                         	to_steal = final_steal - tot_stolen;
 		
-			debug("requested %d cpus already in use, stealing %d from step %d.%d, value: %f", final_steal, to_steal, cpu_steal_infos[j]->job_id, i, values[j]);
-                	stolen = steal_cpus_from_proc(j, i, steal_infos, &steal_mask, final_mask, conflict_mask, to_steal);
+			debug("requested %d cpus already in use, stealing %d from step %d.%d, value: %f", final_steal, to_steal, cpu_steal_infos[j]->job_id, index, values[j]);
+                	stolen = steal_cpus_from_proc(j, index, steal_infos, &steal_mask, final_mask, conflict_mask, to_steal);
 			if(stolen > 0) {
 				tot_stolen += stolen;
 				cpu_steal_infos[j]->got_stolen += stolen;
@@ -589,6 +598,8 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
                 	}
                 	sort_by_values(ordered,values,nordered);		
 		}
+		xfree(ordered_procs);
+		xfree(procs);
 	}
 	xfree(values);
 	xfree(ordered);
@@ -784,6 +795,8 @@ int DLB_Drom_steal_cpus(launch_tasks_request_msg_t *req, uint32_t node_id) {
 	n_active_jobs++;
 	n_active_procs += steal_infos->ntasks; 
 	debug("n_active_jobs: %d", n_active_jobs);
+	if(req->cpu_bind)
+		xfree(req->cpu_bind);
 	req->cpu_bind = new_mask;
        
 	return SLURM_SUCCESS;
@@ -1126,6 +1139,8 @@ int DLB_Drom_expand_jobs(cpu_set_t *non_free_mask) {
                                	if(!CPU_ISSET(c, non_free_mask))
                                        	CPU_SET(c, &free_mask);
 			}
+			for(j = 0; j < cpu_steal_infos[i]->ntasks; j++)
+				xfree(new_distribution[j]);
                         xfree(new_distribution);
 		}
 	}
@@ -1198,7 +1213,6 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					debug("old mask: %s", mask);
 					if(DLB_Drom_SetProcessMask(pids[k],(dlb_cpu_set_t) &cpu_steal_infos[i]->assigned_mask[match])) {
                                			debug("Failed to set DROM process mask of %d",pids[j]);
-                               			xfree(dlb_masks);
                                			return SLURM_ERROR;
                         		}
 				}
@@ -1468,6 +1482,9 @@ void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id)
 	}
 	//update steal_infos with final distribution
 	debug("updating cpu_steal structure with final assigned masks");
+	if(cpu_steal_infos[n_active_jobs-1]->assigned_mask)
+		debug("memory leak???");
+
 	cpu_steal_infos[n_active_jobs-1]->assigned_mask = (cpu_set_t *) xmalloc(sizeof(cpu_set_t) * cpu_steal_infos[n_active_jobs-1]->ntasks);
 	int i;	
 	for(i = 0; i < cpu_steal_infos[n_active_jobs-1]->ntasks; i++) {
