@@ -84,7 +84,7 @@
 #define RUN_JOB_INCR	16
 #define SELECT_DEBUG	0
 
-int MAX_PENALTY = 3;
+int MAX_PENALTY = 5;
 int MIX_WITH_FREE = 1;
 /* These are defined here so when we link with something other than
  * the slurmctld we will have these symbols defined.  They will get
@@ -145,7 +145,7 @@ static struct cr_record *_dup_cr(struct cr_record *cr_ptr);
 static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
                           bitstr_t *free_nodes_map,
                           uint32_t min_nodes, uint32_t max_nodes,
-                          uint32_t req_nodes);
+                          uint32_t req_nodes, List mates_list);
 static void _free_cr(struct cr_record *cr_ptr);
 static int _get_avail_cpus(struct job_record *job_ptr, int index);
 static uint16_t _get_total_cpus(int index);
@@ -566,6 +566,17 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 	List gres_list;
 	bool use_total_gres = true;
 
+	slurm_ctl_conf_t *config = slurm_conf_lock();
+        float DLB_share_factor = config->sharing_factor;
+        slurm_conf_unlock();
+        ListIterator job_iterator, step_iterator;
+        struct job_record *job_rec_ptr;
+        struct step_record *step_ptr;
+	uint16_t cpu_stealable;
+        uint16_t cpu_free;
+        uint16_t cpu_missing;
+        uint16_t cpu_requested;
+
 	xassert(cr_ptr);
 	xassert(cr_ptr->nodes);
 	if (mode != SELECT_MODE_TEST_ONLY) {
@@ -658,33 +669,55 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 		/* Marco: discard nodes where is not possible to steal more cpus */
 		//_filter_occupied_nodes();	
 		/* Marco: TODO: what about threads per core?  */
-		slurm_ctl_conf_t *config = slurm_conf_lock();
-                float DLB_share_factor = config->sharing_factor;
-                slurm_conf_unlock();
-		ListIterator job_iterator;
-		struct job_record *job_rec_ptr;
-		uint16_t cpu_stealable = cpu_cnt * DLB_share_factor;
-		uint16_t cpu_free = cpu_cnt;
-		uint16_t cpu_missing;
-		uint16_t cpu_requested;
-		
+		cpu_stealable = cpu_cnt * DLB_share_factor;
+		cpu_free = cpu_cnt;
+
 		job_iterator = list_iterator_create(job_list);
 		while ((job_rec_ptr = (struct job_record *) list_next(job_iterator)) && cpu_stealable > 0) {
 			if (!IS_JOB_RUNNING(job_rec_ptr)) {
-				debug("Job %d not running", job_rec_ptr->job_id);
 				continue;
 			}
 			if(job_rec_ptr->node_bitmap && bit_test(job_rec_ptr->node_bitmap, i)) {
-				cpu_requested = job_rec_ptr->details->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
-				debug("Job %d running on node %d", job_rec_ptr->job_id, i);
+				//TODO: fix this
+				cpu_requested = 0;
+				step_iterator = list_iterator_create(job_rec_ptr->step_list);
+				while ((step_ptr = (struct step_record *)
+                                   list_next (step_iterator))) {
+					if(!step_ptr->step_node_bitmap || step_ptr->batch_step || !bit_test(step_ptr->step_node_bitmap, i))
+						continue;
+//					cpu_count is the total amount among all nodes
+//					if(step_ptr->cpu_count dd!= 0)
+//						cpu_requested += step_ptr->cpu_count;
+					//TODO: should I save srun ntasks info in step_ptr?
+					if(step_ptr->cpus_per_task && job_rec_ptr->details->ntasks_per_node)
+						cpu_requested += step_ptr->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
+					else
+						cpu_requested += step_ptr->cpus_per_task;
+				}
+                		list_iterator_destroy (step_iterator);
+				debug("after analyzing steps, cpu_requested = %d",cpu_requested);
+				if(cpu_requested == 0) {
+					if(job_rec_ptr->details->cpus_per_task && job_rec_ptr->details->ntasks_per_node) {
+						cpu_requested = job_rec_ptr->details->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
+					}
+					else if(job_rec_ptr->details->cpus_per_task) {
+						cpu_requested = job_rec_ptr->details->cpus_per_task;
+					}
+					else {
+						cpu_requested = 1;
+					}
+				}
+				int tpn = job_rec_ptr->details->ntasks_per_node == 0 ? 1 : job_rec_ptr->details->ntasks_per_node;
+				debug("Job %d runs on node %d: %d req cpus, %d cpt, %d tasks ",
+					 job_rec_ptr->job_id, i, cpu_requested, job_rec_ptr->details->cpus_per_task, tpn);
 				//should I consider Jobs that start with reduced cpt
-				if (cpu_requested < cpu_free)
+				if (cpu_requested <= cpu_free)
                                         cpu_free -= cpu_requested;
                                 else { //steal was necessary
                                         cpu_missing = cpu_requested - cpu_free;
 					while (cpu_missing > cpu_stealable)
-						cpu_missing -= job_rec_ptr->details->ntasks_per_node; 
-                                        assert((cpu_missing + cpu_free) >= job_record_ptr->ntasks_per_node);    //if node was allocated for this job means
+						cpu_missing -= tpn; 
+                                        assert((cpu_missing + cpu_free) >= tpn);    //if node was allocated for this job means
 														//that we allocated at least the min 
 														//number of cpus (ntasks_per_node)
                                         cpu_stealable -= cpu_missing;
@@ -692,7 +725,11 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
                                 }
 			}
 		}
-		if(cpu_free + cpu_stealable < job_ptr->details->ntasks_per_node) {
+		list_iterator_destroy(job_iterator);
+		debug("Stealable cpus %d, free %d in node %d", cpu_stealable, cpu_free, i);
+		//TODO: fix default value for tpn
+		if((job_ptr->details->ntasks_per_node && (cpu_free + cpu_stealable < job_ptr->details->ntasks_per_node)) ||
+		   (cpu_free + cpu_stealable < 1)) {
 			bit_clear(jobmap, i);
 			debug("Job %d cannot be allocated on node %d for lack of stealable cpus", job_ptr->job_id, i);
 			continue;
@@ -780,42 +817,62 @@ static void *memdup(const void *mem, size_t size) {
    return dest;
 }
 
-static int _find_mates(int *x, struct job_record **ptrs, int njobs, int req_nodes, bitstr_t *tmp_bitmap, bitstr_t *free_nodes_map, int exceed_alloc)
+static int _find_mates(int *x, struct job_record **ptrs, int njobs, int req_nodes, bitstr_t *tmp_bitmap, bitstr_t * bitmap, bitstr_t *free_nodes_map, int exceed_alloc)
 {
 	int tmp_nodes = 0;
-	int i, new_nodes;	
+	int i, j, new_nodes, last;	
 	if(free_nodes_map != NULL) {
 		bit_or(tmp_bitmap, free_nodes_map);
 		tmp_nodes = bit_set_count(tmp_bitmap);
 	}
 
 	for (i = 0; i < njobs && tmp_nodes < req_nodes; i++) {
-                new_nodes = bit_set_count(ptrs[i]->node_bitmap) - bit_overlap(tmp_bitmap, ptrs[i]->node_bitmap);
+		//TODO: now new nodes does not consider jobs with partial already shared map, need to filter jobmap with bitmap
+                new_nodes = bit_set_count(ptrs[i]->node_bitmap) - bit_overlap(tmp_bitmap, ptrs[i]->node_bitmap) - bit_overlap(tmp_bitmap, bitmap);
                 if(!exceed_alloc && (new_nodes + tmp_nodes) > req_nodes)
 			continue;
-                x[i] = 1;
+		else if (exceed_alloc && (new_nodes + tmp_nodes) > req_nodes) {
+			new_nodes = 0;
+			j = bit_ffs(ptrs[i]->node_bitmap);
+			last = bit_fls(ptrs[i]->node_bitmap);
+			while(tmp_nodes < req_nodes && j <= last) {
+				if(bit_test(ptrs[i]->node_bitmap, j) && !bit_test(tmp_bitmap, j) && bit_test(bitmap, j)) {
+					bit_set(tmp_bitmap, j);
+					tmp_nodes++;
+					new_nodes++;
+				}
+				j++;
+			}
+			debug("partially took job %d, %d out of %d", ptrs[i]->job_id, new_nodes, bit_set_count(ptrs[i]->node_bitmap));
+		}
+		else {
+			bit_or(tmp_bitmap, ptrs[i]->node_bitmap);
+			bit_and(tmp_bitmap, bitmap);
+                	tmp_nodes = bit_set_count(tmp_bitmap);
+		}
+		x[i] = 1;
                 debug("took job %d", ptrs[i]->job_id);
-                tmp_nodes += new_nodes;
 		debug("tmp_nodes = %d, new_nodes = %d ", tmp_nodes, new_nodes);
-                bit_or(tmp_bitmap, ptrs[i]->node_bitmap);
         }
 	
 	return tmp_nodes;
 }
 
-static int _set_mates_penalties(List mates_list)
+static void _set_mates_penalties(List mates_list, bitstr_t *bitmap)
 {
 	ListIterator job_iterator;
 	struct job_record *job_scan_ptr;
-	job_iterator = list_iterator_create(job_list);
+	job_iterator = list_iterator_create(mates_list);
 
 	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
+		if (bit_overlap(job_scan_ptr->node_bitmap, bitmap) < job_scan_ptr->node_cnt)
+			continue;
 		job_scan_ptr->penalty += 1; 
 	}
 	
         list_iterator_destroy(job_iterator);
-
 }
+
 static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
                           bitstr_t *free_nodes_map,
 			  uint32_t min_nodes, uint32_t max_nodes,
@@ -828,11 +885,12 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	job_iterator = list_iterator_create(job_list);
         njobs = list_count(job_list);
 	
+	debug("In _find_job_mates");
 	struct job_record **ptrs = xmalloc(sizeof(struct job_record *) * njobs);
 	int *x = xmalloc(sizeof(int) * njobs);
 	double **y = xmalloc(sizeof(double *) * njobs);
 	int i = 0, tmp_nodes = 0;
-	
+	debug("njobs = %d", njobs);
 	/* Init parallel vectors */
 	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
 			
@@ -840,7 +898,8 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		/* If not a super set means the job has been discarded
 		 * by _job_count_bitmap, i.e. no cpus to steal
 		 */
-		    !bit_super_set(job_scan_ptr->node_bitmap, bitmap)){
+		  //  !bit_super_set(job_scan_ptr->node_bitmap, bitmap)){
+		    bit_overlap(job_scan_ptr->node_bitmap, bitmap) == 0) {
 			njobs--;
 			continue;
 		}
@@ -860,11 +919,11 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
                     (bit_overlap(job_ptr->details->exc_node_bitmap,
                                  job_scan_ptr->node_bitmap) != 0)) {
                 	njobs--;
-		        continue;       /* Excluded nodes in this job */
 		}
 		int penalty = _evaluate_penalty(job_scan_ptr, req_nodes);
 		
 		if(penalty > MAX_PENALTY) {
+			debug("Penalty is too high for job %d: %d", job_scan_ptr->job_id, penalty);
                         njobs--;
                         continue;       /* Job already penalized too much */
                 }
@@ -888,14 +947,14 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	bit_clear_all(tmp_bitmap);
 
 	//try exact match
-	tmp_nodes = _find_mates(x, ptrs, njobs, req_nodes, tmp_bitmap, NULL, false);
+	tmp_nodes = _find_mates(x, ptrs, njobs, req_nodes, tmp_bitmap, bitmap, NULL, false);
 	//try including bigger jobs
 	if(tmp_nodes < req_nodes) {
 		debug("Trying to allocate a superset of requested nodes");
 		bit_clear_all(tmp_bitmap);
 		for (i = 0; i < njobs; i++)
                 	x[i] = 0;
-		tmp_nodes = _find_mates(x, ptrs, njobs, req_nodes, tmp_bitmap, NULL, true);
+		tmp_nodes = _find_mates(x, ptrs, njobs, req_nodes, tmp_bitmap, bitmap, NULL, true);
 	}
 
 	//try with free nodes
@@ -904,7 +963,7 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		bit_clear_all(tmp_bitmap);
 		for (i = 0; i < njobs; i++)
                         x[i] = 0;
-		tmp_nodes = _find_mates(x, ptrs, njobs, req_nodes, tmp_bitmap, free_nodes_map, true);
+		tmp_nodes = _find_mates(x, ptrs, njobs, req_nodes, tmp_bitmap, bitmap, free_nodes_map, true);
 	}
 	
 	if(tmp_nodes >= req_nodes) {
@@ -3458,6 +3517,7 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 				xfree(node_list);
 			}
 #endif
+			debug("usable nodes: %d", j);
 			if (max_run_job == 0 && j < min_nodes)
                                 free_nodes_map = bit_copy(bitmap);
 			if ((j == prev_cnt) || (j < min_nodes))
@@ -3465,7 +3525,7 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 			prev_cnt = j;
 			if (max_run_job > 0) {
 				List mates_list;
-				mates_list = list_create(); 
+				mates_list = list_create(NULL); 
 				/* We need to share. Try to find
 				 * suitable job to share nodes with */
 				rc = _find_job_mates(job_ptr, bitmap, 
@@ -3479,7 +3539,7 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 //						    max_nodes, req_nodes);
 				if (rc == SLURM_SUCCESS) {
 					debug("job %d found mates", job_ptr->job_id);
-					_set_mates_penalties(mates_list);
+					_set_mates_penalties(mates_list, bitmap);
 					//TODO: should I store mates_list??
 					list_destroy(mates_list);
 					break;
