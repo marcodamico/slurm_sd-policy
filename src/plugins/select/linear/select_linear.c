@@ -671,6 +671,8 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 		/* Marco: TODO: what about threads per core?  */
 		cpu_stealable = cpu_cnt * DLB_share_factor;
 		cpu_free = cpu_cnt;
+		int nprocs_on_node = 0;
+		job_iterator = list_iterator_create(job_list);
 
 		job_iterator = list_iterator_create(job_list);
 		while ((job_rec_ptr = (struct job_record *) list_next(job_iterator)) && cpu_stealable > 0) {
@@ -691,8 +693,8 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 					//TODO: should I save srun ntasks info in step_ptr?
 					if(step_ptr->cpus_per_task && job_rec_ptr->details->ntasks_per_node)
 						cpu_requested += step_ptr->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
-					else
-						cpu_requested += step_ptr->cpus_per_task;
+					//else
+					//	cpu_requested += step_ptr->cpus_per_task;
 				}
                 		list_iterator_destroy (step_iterator);
 				debug("after analyzing steps, cpu_requested = %d",cpu_requested);
@@ -711,8 +713,12 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 				debug("Job %d runs on node %d: %d req cpus, %d cpt, %d tasks ",
 					 job_rec_ptr->job_id, i, cpu_requested, job_rec_ptr->details->cpus_per_task, tpn);
 				//should I consider Jobs that start with reduced cpt
-				if (cpu_requested <= cpu_free)
+				if (cpu_requested <= cpu_free) {
                                         cpu_free -= cpu_requested;
+					//TODO:fix this 
+//					if (tpn > cpu_stealable)
+//						cpu_stealable = cpu_free - tpn;
+				}
                                 else { //steal was necessary
                                         cpu_missing = cpu_requested - cpu_free;
 					while (cpu_missing > cpu_stealable)
