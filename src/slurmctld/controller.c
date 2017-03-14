@@ -541,6 +541,8 @@ int main(int argc, char *argv[])
 			fatal( "failed to initialize power management plugin");
 		sicp_init();
 
+		/* Marco: init extrae tracefile  */
+		slurmctld_extrae_trace_init();
 
 		/*
 		 * create attached thread to process RPCs
