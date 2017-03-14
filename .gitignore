@@ -4,15 +4,7 @@
 .deps
 .libs
 configure
-/auxdir/test-driver
-/auxdir/ltmain.sh
-/auxdir/depcomp
-/auxdir/compile
-/auxdir/config.guess
-/auxdir/config.sub
-/auxdir/missing
-/auxdir/install-sh
-Makefile
+autom4te.cache
 Makefile.in
 /config.h
 /config.log
