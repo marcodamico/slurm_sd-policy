@@ -416,7 +416,7 @@ void print_cpu_steal_info(cpu_steal_info_t *infos) {
 }
 
 int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids) {
-        int j;
+        int j, error;
         cpu_set_t *masks;
 	debug("In get_DLB_procs_masks");
 	DLB_Drom_GetPidList(dlb_pids, npids, MAX_PROCS);
@@ -428,8 +428,8 @@ int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids) {
         masks = (cpu_set_t *) xmalloc(sizeof(cpu_set_t)*(*npids));
 
         for(j=0;j<*npids;j++) {
-                if(DLB_Drom_GetProcessMask(dlb_pids[j],(dlb_cpu_set_t) &masks[j])) {
-                        debug("Failed to get DROM process mask of %d",dlb_pids[j]);
+                if(error = DLB_Drom_GetProcessMask(dlb_pids[j],(dlb_cpu_set_t) &masks[j])) {
+                        debug("Failed to get DROM process mask of %d, error %d",dlb_pids[j], error);
                         return SLURM_ERROR;
                 }
         }

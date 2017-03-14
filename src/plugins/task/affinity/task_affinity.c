@@ -394,7 +394,10 @@ int DLB_Drom_wait_for_dependencies(stepd_step_rec_t *job) {
 	step_loc_t		*s = NULL;
 	int 			fd, counter = 0,index, steps_count, *ready_vector;
 	slurmstepd_state_t 	status;
-		
+
+	if(!job->job_dependencies)
+		return SLURM_SUCCESS;
+
 	steps = stepd_available(conf->spooldir, conf->node_name);
 	ii = list_iterator_create(steps);
 	steps_count = list_count(steps);
@@ -416,7 +419,7 @@ int DLB_Drom_wait_for_dependencies(stepd_step_rec_t *job) {
 			//skip batch, job itself, next jobs and not dependent jobs
 			if(s->jobid >= job->jobid || s->stepid == NO_VAL ||
 			  (job->job_dependencies && list_find_first(
-			   job->job_dependencies, _jobs_equal, &s->jobid) != NULL)) {
+			   job->job_dependencies, _jobs_equal, &s->jobid) == NULL)) {
 				ready_vector[index] = 1;
 				index++;
 				counter++;
