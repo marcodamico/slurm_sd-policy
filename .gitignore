@@ -3,7 +3,6 @@
 *.lo
 .deps
 .libs
-*.m4
 configure
 /auxdir/test-driver
 /auxdir/ltmain.sh
