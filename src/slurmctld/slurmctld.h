@@ -771,7 +771,7 @@ struct job_record {
 	time_t wait4switch_start; /* Time started waiting for switch       */
 
 	/* Marco: my parameters*/
-	int penalty;                    /* Penalization due to malleability */
+	double penalty;                    /* Penalization due to malleability */
 };
 
 /* Job dependency specification, used in "depend_list" within job_record */

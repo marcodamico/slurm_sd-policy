@@ -104,7 +104,7 @@
 #define MAX_PROCS 64
 
 typedef struct cpu_steal_info {
-        int             job_id;
+        uint32_t        job_id;
 	int             cpu_bind_type;          //needed for resource redistribution
         int             task_dist;              //needed for resource redistribution
 	int 		ntasks;			//number of task in the node for the job

@@ -41,6 +41,7 @@
 #include "src/common/log.h"
 #include "src/common/slurm_cred.h"
 #include "src/common/slurm_protocol_api.h"
+#include "src/common/slurm_protocol_defs.h"
 #include "src/common/slurm_resource_info.h"
 #include "src/common/xmalloc.h"
 #include "src/slurmd/slurmd/slurmd.h"
@@ -428,7 +429,7 @@ int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids) {
         masks = (cpu_set_t *) xmalloc(sizeof(cpu_set_t)*(*npids));
 
         for(j=0;j<*npids;j++) {
-                if(error = DLB_Drom_GetProcessMask(dlb_pids[j],(dlb_cpu_set_t) &masks[j])) {
+                if((error = DLB_Drom_GetProcessMask(dlb_pids[j],(dlb_cpu_set_t) &masks[j]))) {
                         debug("Failed to get DROM process mask of %d, error %d",dlb_pids[j], error);
                         return SLURM_ERROR;
                 }
@@ -527,7 +528,7 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
 	float *values;
 	int  *ordered, *max_steal, nordered;
 	int max_steal_per_task;
-	List job_dependencies = list_create(NULL);
+	List job_dependencies = list_create(slurm_free_job_dependency);
 	values = xmalloc(sizeof(float) * n_active_procs);
 	ordered = xmalloc(sizeof(int) * n_active_procs);
 	max_steal = xmalloc(sizeof(int) * n_active_procs);
@@ -590,7 +591,9 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
 				tot_stolen += stolen;
 				cpu_steal_infos[j]->got_stolen += stolen;
 				values[j] -= stolen;
-				list_append(job_dependencies, &cpu_steal_infos[j]->job_id);
+				uint32_t *item = xmalloc(sizeof(uint32_t));
+				*item = cpu_steal_infos[j]->job_id;
+				list_append(job_dependencies, item);
                 	}
                	 	else {
                         	values[j] = -1;
@@ -765,6 +768,13 @@ int DLB_Drom_steal_cpus(launch_tasks_request_msg_t *req, uint32_t node_id) {
 	if(final_steal != 0) {
 		job_dependencies = steal_cpus(steal_infos, final_steal, &conflict_mask, &non_free_mask, final_mask);
 		req->job_dependencies = job_dependencies;
+		
+		ListIterator ii = list_iterator_create(job_dependencies);
+        	uint32_t *jobid;
+		while ((jobid = list_next(ii))) {
+			debug("job %d is a dependency", *jobid);
+		}	
+		list_iterator_destroy(ii);
 		debug("Steal complete!");
 	}
         
@@ -1233,7 +1243,7 @@ int DLB_Drom_reassign_cpus(uint32_t job_id)
         cpu_set_t *dlb_masks = NULL;
         cpu_set_t non_free_mask;
 	int changes = 0;
-	cpu_steal_info_t *to_destroy;
+	cpu_steal_info_t *to_destroy = NULL;
         
         debug("In DLB_Drom_reassign_cpus");
 
@@ -1243,7 +1253,10 @@ int DLB_Drom_reassign_cpus(uint32_t job_id)
                         debug("Index of finised job in cpu_steal_infos: %d", job_index);
                         break;
                 }
-
+	if(i == n_active_jobs) {
+		debug("No info about this job, some error occurred");
+		return SLURM_ERROR;
+	}
         to_destroy = cpu_steal_infos[job_index];
         if(job_index < (n_active_jobs-1) && n_active_jobs != 1)
                 cpu_steal_infos[job_index] = cpu_steal_infos[n_active_jobs-1];

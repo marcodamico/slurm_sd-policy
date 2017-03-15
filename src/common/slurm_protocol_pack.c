@@ -7230,13 +7230,13 @@ _pack_slurm_ctl_conf_msg(slurm_ctl_conf_info_msg_t * build_ptr, Buf buffer,
 		if (count && count != NO_VAL) {
 			ListIterator itr = list_iterator_create(
 				(List)build_ptr->select_conf_key_pairs);
-			config_key_pair_t *key_pair = NULL;
-			while ((key_pair = list_next(itr))) {
-				pack_config_key_pair(key_pair,
-						     protocol_version, buffer);
+			int *value = NULL;
+			while ((value = list_next(itr))) {
+				pack32(*value, buffer);
 			}
 			list_iterator_destroy(itr);
 		}
+		count = NO_VAL;
 
 		pack16(build_ptr->select_type_param, buffer);
 
@@ -9753,7 +9753,7 @@ static void
 _pack_launch_tasks_request_msg(launch_tasks_request_msg_t * msg, Buf buffer,
 			       uint16_t protocol_version)
 {
-	uint32_t cluster_flags = slurmdb_setup_cluster_flags();
+	uint32_t cluster_flags = slurmdb_setup_cluster_flags(), count = NO_VAL;
 	int i = 0;
 
 	xassert(msg != NULL);
@@ -9795,6 +9795,22 @@ _pack_launch_tasks_request_msg(launch_tasks_request_msg_t * msg, Buf buffer,
 		packstr(msg->cpu_bind, buffer);
 		pack16(msg->mem_bind_type, buffer);
 		packstr(msg->mem_bind, buffer);
+		
+		if (msg->job_dependencies)
+                        count = list_count(msg->job_dependencies);
+
+                pack32(count, buffer);
+                if (count && count != NO_VAL) {
+                        ListIterator itr = list_iterator_create(
+                                (List)msg->job_dependencies);
+                        uint32_t *jobid = NULL;
+                        while ((jobid = list_next(itr))) {
+                                pack32(*jobid, buffer);
+                        }
+                        list_iterator_destroy(itr);
+                }
+                count = NO_VAL;
+
 		packstr_array(msg->argv, msg->argc, buffer);
 		pack16(msg->task_flags, buffer);
 		pack16(msg->multi_prog, buffer);
@@ -9928,7 +9944,7 @@ _unpack_launch_tasks_request_msg(launch_tasks_request_msg_t **
 				 msg_ptr, Buf buffer,
 				 uint16_t protocol_version)
 {
-	uint32_t cluster_flags = slurmdb_setup_cluster_flags();
+	uint32_t cluster_flags = slurmdb_setup_cluster_flags(), count = NO_VAL;
 	uint32_t uint32_tmp;
 	launch_tasks_request_msg_t *msg;
 	int i = 0;
@@ -9984,6 +10000,20 @@ _unpack_launch_tasks_request_msg(launch_tasks_request_msg_t **
 		safe_unpackstr_xmalloc(&msg->cpu_bind, &uint32_tmp, buffer);
 		safe_unpack16(&msg->mem_bind_type, buffer);
 		safe_unpackstr_xmalloc(&msg->mem_bind, &uint32_tmp, buffer);
+		
+		uint32_t *job_dep = NULL;	
+		safe_unpack32(&count, buffer);
+                if (count != NO_VAL) {
+                        msg->job_dependencies =
+                                list_create(slurm_free_job_dependency);
+                        for (i=0; i < count; i++) {
+				job_dep = xmalloc(sizeof(uint32_t));
+                                safe_unpack32(job_dep, buffer);
+                                list_append(msg->job_dependencies, job_dep);
+                        }
+                }
+		count = NO_VAL;
+	
 		safe_unpackstr_array(&msg->argv, &msg->argc, buffer);
 		safe_unpack16(&msg->task_flags, buffer);
 		safe_unpack16(&msg->multi_prog, buffer);

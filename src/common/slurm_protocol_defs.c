@@ -3243,6 +3243,13 @@ extern void slurm_free_block_job_info(void *object)
 	}
 }
 
+extern void slurm_free_job_dependency(void *object)
+{
+	uint32_t *dep = (uint32_t *)object;
+	if (dep)
+		xfree(dep);
+}
+
 extern void slurm_free_block_info_members(block_info_t *block_info)
 {
 	if (block_info) {

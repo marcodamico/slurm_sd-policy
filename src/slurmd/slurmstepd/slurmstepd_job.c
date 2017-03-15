@@ -423,6 +423,24 @@ stepd_step_rec_create(launch_tasks_request_msg_t *msg, uint16_t protocol_version
 	_job_init_task_info(job, msg->global_task_ids,
 			    msg->ifname, msg->ofname, msg->efname);
 
+	/* Marco: get dependency list  */
+	if (!msg->job_dependencies) {
+		debug("no dependency for this task");
+		job->job_dependencies = NULL;
+	}
+	else {
+		debug("some dependencies exist");
+		job->job_dependencies = list_create(slurm_free_job_dependency);
+		ListIterator ii = list_iterator_create(msg->job_dependencies); 
+		uint32_t *jobid, *new_jobid;
+		while ((jobid = list_next(ii))) {
+               		debug("job %d is a dependency", *jobid);
+			new_jobid = xmalloc(sizeof(uint32_t));
+			*new_jobid = *jobid;
+			list_append(job->job_dependencies,new_jobid);
+		}
+		list_iterator_destroy(ii);
+	}
 	return job;
 }
 
@@ -574,6 +592,7 @@ stepd_step_rec_destroy(stepd_step_rec_t *job)
 	xfree(job->step_alloc_cores);
 	xfree(job->task_cnts);
 	xfree(job->user_name);
+	list_destroy(job->job_dependencies);
 	xfree(job);
 }
 
