@@ -111,6 +111,8 @@
 #include "src/slurmd/slurmd/slurmd.h"
 #include "src/slurmd/slurmd/slurmd_plugstack.h"
 
+#include "src/common/slurm_extrae.h"
+
 #define GETOPT_ARGS	"cCd:Df:hL:Mn:N:vV"
 
 #ifndef MAXHOSTNAMELEN
@@ -363,6 +365,9 @@ main (int argc, char *argv[])
 	if (slurmd_plugstack_init())
 		fatal("failed to initialize slurmd_plugstack");
 
+	if(slurmd_extrae_trace_init(ncpus) != SLURM_SUCCESS)
+                debug("Error in slurmd_extrae_trace_init");
+
 	_spawn_registration_engine();
 	msg_aggr_sender_init(conf->hostname, conf->port,
 			     conf->msg_aggr_window_time,
@@ -382,6 +387,9 @@ main (int argc, char *argv[])
 	_slurmd_fini();
 	_destroy_conf();
 	slurm_crypto_fini();	/* must be after _destroy_conf() */
+
+	if (slurmd_extrae_trace_fini() != SLURM_SUCCESS)
+                debug("Error in slurmd_extrae_trace_fini");	
 
 	info("Slurmd shutdown completing");
 	log_fini();

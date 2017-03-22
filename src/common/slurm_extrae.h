@@ -1,16 +1,27 @@
 #ifndef _SLURM_EXTRAE_H
 #define _SLURM_EXTRAE_H
 
-#define	IDLE 		= 0,
-#define	RUNNING 	= 1,
-#define	NOT_CREATED 	= 2
+#define	IDLE 		0
+#define	RUNNING 	1
+#define	NOT_CREATED 	2
 
+#define EXTRAE_STRING_LEN 150
+
+typedef struct extrae_thread {
+//	int app_id;
+	int job_id;
+	char entry[EXTRAE_STRING_LEN];
+//	int cpu_id;
+//	int task_id;
+//	int th_id;
+} extrae_thread_t;
 
 int slurmctld_extrae_trace_init();
 int slurmctld_extrae_trace_fini();
+int slurmd_extrae_trace_init(int ncpus);
+int slurmd_extrae_trace_fini();
 
-void slurmd_start_thread(char *entry, int cpu_id, app_id, th_id, int time);
-void slurmd_stop_thread(char *entry, int time);
-void slurmd_change_cpu_owner(char *from, char *to, int cpu_id, app_id, th_id, int time);
+int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id);
+int slurmd_extrae_stop_thread(int cpu_id);
 
 #endif
