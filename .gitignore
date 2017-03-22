@@ -3,9 +3,8 @@
 *.lo
 .deps
 .libs
-configure
+Makefile
 autom4te.cache
-Makefile.in
 /config.h
 /config.log
 /config.status
