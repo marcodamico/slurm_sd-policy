@@ -116,6 +116,7 @@
 #include "src/slurmctld/state_save.h"
 #include "src/slurmctld/trigger_mgr.h"
 
+#include "src/common/slurm_extrae.h"
 
 #define CRED_LIFE         60	/* Job credential lifetime in seconds */
 #define DEFAULT_DAEMONIZE 1	/* Run as daemon by default if set */
@@ -542,7 +543,8 @@ int main(int argc, char *argv[])
 		sicp_init();
 
 		/* Marco: init extrae tracefile  */
-		slurmctld_extrae_trace_init();
+		if(slurmctld_extrae_trace_init() != SLURM_SUCCESS)
+			debug("Error in slurmctld_extrae_trace_init");
 
 		/*
 		 * create attached thread to process RPCs
@@ -641,7 +643,8 @@ int main(int argc, char *argv[])
 
 	layouts_fini();
 	g_slurm_jobcomp_fini();
-
+	if (slurmctld_extrae_trace_fini(job_list, node_record_table_ptr))
+		debug("Error in slurmctld_extrae_trace_fini");
 	/* Since pidfile is created as user root (its owner is
 	 *   changed to SlurmUser) SlurmUser may not be able to
 	 *   remove it, so this is not necessarily an error. */

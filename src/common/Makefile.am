@@ -67,6 +67,7 @@ libcommon_la_SOURCES = 			\
 	slurm_cred.c			\
 	slurm_errno.c			\
 	slurm_ext_sensors.c slurm_ext_sensors.h \
+	slurm_extrae.c slurm_extrae.h	\
 	slurm_priority.c		\
 	slurm_priority.h		\
 	slurm_protocol_api.c		\
