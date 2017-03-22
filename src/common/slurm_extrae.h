@@ -1,6 +1,8 @@
 #ifndef _SLURM_EXTRAE_H
 #define _SLURM_EXTRAE_H
 
+#include "slurm/slurm.h"
+
 #define	IDLE 		0
 #define	RUNNING 	1
 #define	NOT_CREATED 	2

@@ -643,7 +643,7 @@ int main(int argc, char *argv[])
 
 	layouts_fini();
 	g_slurm_jobcomp_fini();
-	if (slurmctld_extrae_trace_fini(job_list, node_record_table_ptr))
+	if (slurmctld_extrae_trace_fini(job_list, node_record_table_ptr, node_record_count))
 		debug("Error in slurmctld_extrae_trace_fini");
 	/* Since pidfile is created as user root (its owner is
 	 *   changed to SlurmUser) SlurmUser may not be able to

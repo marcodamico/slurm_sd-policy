@@ -1211,13 +1211,13 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					//update extrae infos
 					for(l = 0; l < cpu_steal_infos[i]->assigned_cpt; l++)
 						for(m = 0; m < ncpus; m++) {
-							if(CPU_ISSET(m, mask) && !CPU_ISSET(&cpu_steal_infos[i]->assigned_mask[match])) {
+							if(CPU_ISSET(m, &dlb_masks[k]) && !CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match])) {
 								slurmd_extrae_start_thread(cpu_steal_infos[i]->job_id, m, match, l);
 								break;
 							}
-							else if(CPU_ISSET(m, mask) && CPU_ISSET(&cpu_steal_infos[i]->assigned_mask[match]))
+							else if(CPU_ISSET(m, &dlb_masks[k]) && CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match]))
 								break;
-							else if(!CPU_ISSET(m, mask) && CPU_ISSET(&cpu_steal_infos[i]->assigned_mask[match])) {
+							else if(!CPU_ISSET(m, &dlb_masks[k]) && CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match])) {
 								l--;
 								break;
 							}
@@ -1287,7 +1287,7 @@ int DLB_Drom_reassign_cpus(uint32_t job_id)
         for(i = 0; i < to_destroy->ntasks; i++)
                 for(j = 0; j < to_destroy->assigned_cpt; j++)
                         for(cpu_id = 0; cpu_id < ncpus; cpu_id++)
-                                if(CPU_ISSET(cpu_id, cpu_steal_infos[to_destroy]->assigned_mask[i])) {
+                                if(CPU_ISSET(cpu_id, &to_destroy->assigned_mask[i])) {
                                         slurmd_extrae_stop_thread(cpu_id);
                                         break;
                                 }
@@ -1520,14 +1520,11 @@ void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id)
 	debug("extrae info generation");
 	int cpu_id;
 
-	for(i = 0; i < req->node_tasks; i++) {
-		for(j = 0; j < req->cpus_per_task; j++) {
-			for(cpu_id = 0; cpu_id < ncpus; cpu_id++) {
-				if(CPU_ISSET(cpu_id, cpu_steal_infos[n_active_jobs-1]->assigned_mask[i])
-					slurmd_extrae_start_thread(req->job_id, cpu_id, i, j); 
-			}
-        	}
-	}
+	for(i = 0; i < req->tasks_to_launch[node_id]; i++)
+		for(j = 0; j < req->cpus_per_task; j++)
+			for(cpu_id = 0; cpu_id < ncpus; cpu_id++)
+				if(CPU_ISSET(cpu_id, &cpu_steal_infos[n_active_jobs-1]->assigned_mask[i]))
+					slurmd_extrae_start_thread(req->job_id, cpu_id, i, j);
 //	char *tok, *save_ptr;
 //	int i = 0;
 //	tok = strtok_r(req->cpu_bind, ",", &save_ptr);
