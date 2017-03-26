@@ -361,7 +361,8 @@ static void _validate_mask(launch_tasks_request_msg_t *req, char *avail_mask)
 	xfree(req->cpu_bind);
 	req->cpu_bind = new_mask;
 }
-void cpu_steal_info_init(cpu_steal_info_t **infos) {
+void cpu_steal_info_init(cpu_steal_info_t **infos)
+{
         int i;
 
         *infos = (cpu_steal_info_t *) xmalloc(sizeof(cpu_steal_info_t));
@@ -382,84 +383,112 @@ void cpu_steal_info_init(cpu_steal_info_t **infos) {
                 (*infos)->stolen[i] = NULL;
 }
 
-void cpu_steal_info_destroy(cpu_steal_info_t *infos) {
-        debug("destroying infos of %d",infos->job_id);
-        xfree(infos->manual_masks);
-        xfree(infos->auto_mask);
-        xfree(infos->general_mask);
-        xfree(infos->assigned_mask);
-        xfree(infos->stolen);
-        xfree(infos);
+void cpu_steal_info_destroy(cpu_steal_info_t *infos)
+{
+	debug("destroying infos of %d",infos->job_id);
+
+	xfree(infos->manual_masks);
+	xfree(infos->auto_mask);
+	xfree(infos->general_mask);
+	xfree(infos->assigned_mask);
+	xfree(infos->stolen);
+	xfree(infos);
 }
 
-void print_cpu_steal_info(cpu_steal_info_t *infos) {
+void print_cpu_steal_info(cpu_steal_info_t *infos)
+{
         char str[CPU_SETSIZE+1];
         int i;
-        debug("jobid: %d, ntasks: %d, assigned cpt: %d, original cpt: %d, nsteals: %d", infos->job_id, infos->ntasks, infos->assigned_cpt, infos->original_cpt, infos->nsteals);
+
+        debug("jobid: %d, ntasks: %d, assigned cpt: %d, original cpt: %d, 
+	       nsteals: %d", infos->job_id, infos->ntasks, infos->assigned_cpt,
+	       infos->original_cpt, infos->nsteals);
+
         cpuset_to_str(infos->general_mask, str);
         debug("general mask: %s",str);
-        if(infos->manual_masks != NULL)
+
+        if (infos->manual_masks != NULL)
                 for(i = 0; i < infos->ntasks; i++) {
                         cpuset_to_str(&infos->manual_masks[i], str);
                         debug("manual mask: %s",str);
                 }
-        if(infos->assigned_mask)
+        if (infos->assigned_mask)
                 for(i = 0; i < infos->ntasks; i++) {
                         cpuset_to_str(&infos->assigned_mask[i], str);
                         debug("assigned mask: %s",str);
                 }
-        if(infos->auto_mask)
+        if(infos->auto_mask) {
                 cpuset_to_str(infos->auto_mask, str);
-        debug("auto mask: %s",str);
-        for(i = 0; i < ncpus; i++)
+        	debug("auto mask: %s",str);
+        }
+	for(i = 0; i < ncpus; i++)
                 if(infos->stolen[i])
                         debug("cpu %d stolen",i);
 }
 
-int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids) {
+int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids)
+{
         int j, error;
         cpu_set_t *masks;
+
 	debug("In get_DLB_procs_masks");
 	DLB_Drom_GetPidList(dlb_pids, npids, MAX_PROCS);
-        debug("Found %d processes to steal from", *npids);
+
+        debug("DLB found %d processes", *npids);
         if(*npids == 0) {
 		masks = NULL;
                 return SLURM_SUCCESS;
 	}
+
         masks = (cpu_set_t *) xmalloc(sizeof(cpu_set_t)*(*npids));
 
-        for(j=0;j<*npids;j++) {
-                if((error = DLB_Drom_GetProcessMask(dlb_pids[j],(dlb_cpu_set_t) &masks[j]))) {
-                        debug("Failed to get DROM process mask of %d, error %d",dlb_pids[j], error);
+        for(j = 0; j < *npids; j++)
+                if((error = 
+		    DLB_Drom_GetProcessMask(dlb_pids[j], &masks[j]))) {
+                        debug("Error in DLB_Drom_GetProcessMask for pid %d, 
+			       error %d", dlb_pids[j], error);
+			xfree(masks);
                         return SLURM_ERROR;
                 }
-        }
+
         *dlb_masks = masks;
         return SLURM_SUCCESS;
 }
 
-void get_conflict_masks(cpu_set_t *req_set, int nsets, cpu_set_t *conflict_mask) {
+void get_conflict_masks(cpu_set_t *req_set, int nsets, cpu_set_t *conflict_mask)
+{
         int i, j, k;
         cpu_set_t mask;
+
         debug("In get_conflict_masks");
 
 	CPU_ZERO(conflict_mask);
         for(i = 0; i < nsets; i++)
                 for(j = 0; j < n_active_jobs; j++)
 			for(k = 0; k < cpu_steal_infos[j]->ntasks; k++) {
-				//AND to get CPUs in common between DLB processes and new Job
-                        	CPU_AND(&mask, &req_set[i], &cpu_steal_infos[j]->assigned_mask[k]);
-				//OR to add it to conflict mask
+				//get CPUs in common between active DLB
+				//processes and entering Job
+                        	CPU_AND(&mask, &req_set[i],
+					&cpu_steal_infos[j]->assigned_mask[k]);
+				//add them to conflict mask
                         	CPU_OR(conflict_mask, &mask, conflict_mask);
 			}
 }
 
-int steal_cpus_from_proc(int index, int proc_index, cpu_steal_info_t *steal_infos, cpu_set_t *steal_mask, cpu_set_t *final_mask, cpu_set_t *conflict_mask, int to_steal) {
+int steal_cpus_from_proc(int index, int proc_index, cpu_steal_info_t *steal_infos,
+			 cpu_set_t *steal_mask, cpu_set_t *final_mask,
+			 cpu_set_t *conflict_mask, int to_steal)
+{
         int i, k, stolen = 0;
 	cpu_steal_info_t *victim = cpu_steal_infos[index];
 	char str[CPU_SETSIZE+1];
+
 	debug("In steal_cpus_from_proc");
-	//try to give consecutive cpus TODO:implement some isolated first policy? (give isolated cpus first) (or steal from less occupied socket first (if to_steal is low enough)
+
+	//try to give consecutive cpus 
+	//TODO:implement some isolated first policy? give isolated cpus first
+	//or steal from less occupied socket first (if to_steal is low enough)
+	//or steal one socket first and redistribute
         for(i = ncpus - 1; i >= 0; i--) {
 		cpuset_to_str(steal_mask, str);
 		debug("steal_mask: %s", str);
