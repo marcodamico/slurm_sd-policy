@@ -364,8 +364,24 @@ main (int argc, char *argv[])
 	 */
 	if (slurmd_plugstack_init())
 		fatal("failed to initialize slurmd_plugstack");
+	int n_cpus;
+	if (!ncpus) {
+		hwloc_topology_t topology;
+ 		hwloc_topology_init(&topology);
+  		hwloc_topology_load(topology);
 
-	if(slurmd_extrae_trace_init(ncpus) != SLURM_SUCCESS)
+  		int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_CORE);
+  		if(depth == HWLOC_TYPE_DEPTH_UNKNOWN)
+			printf("*** The number of cores is unknown\n");
+		else
+			printf("*** %u core(s)\n", hwloc_get_nbobjs_by_depth(topology, depth));
+		hwloc_topology_destroy(topology);
+		n_cpus = hwloc_get_nbobjs_by_depth(topology, depth);
+		
+	}
+	else
+		n_cpus = ncpus; 
+	if (slurmd_extrae_trace_init(n_cpus) != SLURM_SUCCESS)
                 debug("Error in slurmd_extrae_trace_init");
 
 	_spawn_registration_engine();
