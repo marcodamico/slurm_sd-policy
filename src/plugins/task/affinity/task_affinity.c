@@ -52,7 +52,6 @@
 #include "dist_tasks.h"
 #include "src/common/read_config.h"
 #include <time.h> //for timing
-#include <sys/time.h> //for timing
 
 #include "DLB_interface.h"
 #define DROM_SYNC_WAIT_USECS 100
