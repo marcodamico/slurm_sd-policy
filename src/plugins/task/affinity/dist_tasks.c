@@ -1255,14 +1255,12 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					//then start new ones
 					for(m = 0; m < ncpus; m++)
                                                 if(!CPU_ISSET(m, &dlb_masks[k]) && CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match])) {
-							//TODO:same as stop_thread
-							//slurmd_extrae_start_thread(cpu_steal_infos[i]->job_id, m + 1 + ncpus * node_id, match +1, l +1);
-							int thread_id = slurmd_get_next_extrae_thread(cpu_steal_infos[i]->job_id, match + 1);
+							int thread_id = slurmd_get_next_extrae_thread(cpu_steal_infos[i]->job_id, match + 1 + cpu_steal_infos[i]->first_gtid);
 							if(thread_id == -1) {
 								debug("Error with extrae thread ids");
 								break;
 							}
-							slurmd_extrae_start_thread(cpu_steal_infos[i]->job_id, m, match + 1, thread_id);
+							slurmd_extrae_start_thread(cpu_steal_infos[i]->job_id, m, match + 1 + cpu_steal_infos[i]->first_gtid, thread_id, -1);
 						}
 
 					cpuset_to_str(&cpu_steal_infos[i]->assigned_mask[match], mask);
@@ -1333,8 +1331,6 @@ int DLB_Drom_reassign_cpus(uint32_t job_id)
         for(i = 0; i < to_destroy->ntasks; i++)
 		for(cpu_id = 0; cpu_id < ncpus; cpu_id++)
                 	if(CPU_ISSET(cpu_id, &to_destroy->assigned_mask[i])) {
-//				TODO: we need to know the global node id or pass the node name
-//                                    slurmd_extrae_stop_thread(cpu_id + 1 + node_id * ncpus);
 				slurmd_extrae_stop_thread(cpu_id); 
 			}
 
@@ -1566,6 +1562,8 @@ void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id)
 	debug("extrae info generation");
 	int cpu_id, cpu_count;
 
+	cpu_steal_infos[n_active_jobs-1]->first_gtid = gtid[0];
+
 	for(i = 0; i < req->tasks_to_launch[node_id]; i++) {
 		cpu_count = 0;
 		for(cpu_id = 0; cpu_id < ncpus; cpu_id++) {
@@ -1575,7 +1573,7 @@ void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id)
 				cpu_count++;
 //				TODO:same as stop_thread
 //				slurmd_extrae_start_thread(req->job_id, cpu_id + node_id * ncpus, i + 1, j + 1);
-				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1, cpu_count);
+				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1 + cpu_steal_infos[n_active_jobs-1]->first_gtid, cpu_count, node_id);
 			}
 		}
 	}

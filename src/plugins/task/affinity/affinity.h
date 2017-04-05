@@ -109,6 +109,8 @@ typedef struct cpu_steal_info {
         int             task_dist;              //needed for resource redistribution
 	int 		ntasks;			//number of task in the node for the job
 						//equal to number of masks in manual masks
+	int 		first_gtid;		//base task for this node, used to create
+						//a global identifier for task: base_task + taski
 	cpu_set_t	*manual_masks;		//mask assigned by user, always respect them
 						//when expanding a job, if not present,
 						// we need to create a new distribution
