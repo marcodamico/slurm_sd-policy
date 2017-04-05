@@ -22,7 +22,7 @@ long int trace_prv_header_offset = 0;
 int n_cpus = 0;
 int first_job = 0;
 extrae_thread_t *extrae_threads;
-int node_number = 0;
+int base_cpu_id = -1;
 
 /* Slurmctld init the first line of paraver prv file  */
 int slurmctld_extrae_trace_init()
@@ -183,7 +183,7 @@ static void _start_thread(int cpu_id, int app_id, int task_id, int th_id)
         struct timeval fini_time;
         gettimeofday(&fini_time, NULL);
         long elapsed = (fini_time.tv_sec-init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;
-        sprintf(extrae_threads[cpu_id].entry, "1:%d:%d:%d:%d:%ld", cpu_id + 1, app_id, task_id, th_id, elapsed);
+        sprintf(extrae_threads[cpu_id].entry, "1:%d:%d:%d:%d:%ld", cpu_id + 1 + base_cpu_id, app_id, task_id, th_id, elapsed);
 }
 
 static int _stop_thread(int cpu_id)
@@ -226,18 +226,29 @@ static int _print_extrae_threads()
 	return 0;
 }
 
-int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id)
+int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id, int node_id)
 {
+	int app_id;
+
 	debug("In slurmd_extrae_start_thread\n");
 
-	if(slurmd_extrae_stop_thread(cpu_id) != SLURM_SUCCESS) {
+	if (slurmd_extrae_stop_thread(cpu_id) != SLURM_SUCCESS) {
 		debug("Error in slurmd_extrae_stop_thread");
 		return SLURM_ERROR;
 	}
 	
-	if(!first_job)
+	if (!first_job) {
 		first_job = job_id - 1;
-	int app_id = job_id - first_job;
+		if(base_cpu_id == -1) {
+			if (node_id != -1)
+				base_cpu_id = node_id * n_cpus;
+			else {
+				debug("Error: node id not provided!");
+				return SLURM_ERROR;
+			}
+		}
+	}
+	app_id = job_id - first_job;
 	_start_thread(cpu_id, app_id, task_id, th_id);
 	extrae_threads[cpu_id].job_id = job_id;
 	extrae_threads[cpu_id].task_id = task_id;
