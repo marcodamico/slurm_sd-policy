@@ -505,7 +505,7 @@ AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src/common $(HWLOC_CPPFLAGS) -I$(D
 @HAVE_SCHED_SETAFFINITY_TRUE@	schedutils.c \
 @HAVE_SCHED_SETAFFINITY_TRUE@	task_affinity.c
 
-@HAVE_SCHED_SETAFFINITY_TRUE@task_affinity_la_LDFLAGS = $(HWLOC_LDFLAGS) $(HWLOC_LIBS) $(SO_LDFLAGS) $(NUMA_LIBS) $(PLUGIN_FLAGS)  -L$(DLB_HOME)/lib -ldlb -Wl,-rpath,$(DLB_HOME)/lib
+@HAVE_SCHED_SETAFFINITY_TRUE@task_affinity_la_LDFLAGS = $(HWLOC_LDFLAGS) $(HWLOC_LIBS) $(SO_LDFLAGS) $(NUMA_LIBS) $(PLUGIN_FLAGS) -L$(DLB_HOME)/lib -ldlb -Wl,-rpath,$(DLB_HOME)/lib
 @HAVE_SCHED_SETAFFINITY_FALSE@EXTRA_task_affinity_la_SOURCES = \
 @HAVE_SCHED_SETAFFINITY_FALSE@	affinity.c affinity.h \
 @HAVE_SCHED_SETAFFINITY_FALSE@	cpuset.c \

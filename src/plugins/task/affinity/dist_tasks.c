@@ -401,8 +401,8 @@ void print_cpu_steal_info(cpu_steal_info_t *infos)
         char str[CPU_SETSIZE+1];
         int i;
 
-        debug("jobid: %d, ntasks: %d, assigned cpt: %d, original cpt: %d, 
-	       nsteals: %d", infos->job_id, infos->ntasks, infos->assigned_cpt,
+        debug("jobid: %d, ntasks: %d, assigned cpt: %d, original cpt: %d," 
+	       "nsteals: %d", infos->job_id, infos->ntasks, infos->assigned_cpt,
 	       infos->original_cpt, infos->nsteals);
 
         cpuset_to_str(infos->general_mask, str);
@@ -446,8 +446,8 @@ int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids)
         for(j = 0; j < *npids; j++)
                 if((error = 
 		    DLB_Drom_GetProcessMask(dlb_pids[j], &masks[j]))) {
-                        debug("Error in DLB_Drom_GetProcessMask for pid %d, 
-			       error %d", dlb_pids[j], error);
+                        debug("Error in DLB_Drom_GetProcessMask for pid %d, "
+			      "error %d", dlb_pids[j], error);
 			xfree(masks);
                         return SLURM_ERROR;
                 }
@@ -1238,7 +1238,7 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					for(l = 0; l < cpu_steal_infos[i]->ntasks; l++) {
 						c = 0;
 						for(m = 0; m < ncpus; m++)
-							if(CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[l]) && CPU_ISSET(m, &dlb_masks[k]))
+								if(CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[l]) && CPU_ISSET(m, &dlb_masks[k]))
 								c++;
 						if(c > maxc) {
 							maxc = c;
@@ -1247,21 +1247,6 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					}
 					debug("mask of pid %d changed, maxc = %d", pids[k], maxc);
 					char mask[1 + CPU_SETSIZE / 4];
-					//update extrae infos
-					//first stop moved threads
-					for(m = 0; m < ncpus; m++)
-						if(CPU_ISSET(m, &dlb_masks[k]) && !CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match]))
-							slurmd_extrae_stop_thread(m);
-					//then start new ones
-					for(m = 0; m < ncpus; m++)
-                                                if(!CPU_ISSET(m, &dlb_masks[k]) && CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match])) {
-							int thread_id = slurmd_get_next_extrae_thread(cpu_steal_infos[i]->job_id, match + 1 + cpu_steal_infos[i]->first_gtid);
-							if(thread_id == -1) {
-								debug("Error with extrae thread ids");
-								break;
-							}
-							slurmd_extrae_start_thread(cpu_steal_infos[i]->job_id, m, match + 1 + cpu_steal_infos[i]->first_gtid, thread_id, -1);
-						}
 
 					cpuset_to_str(&cpu_steal_infos[i]->assigned_mask[match], mask);
 					debug("new mask: %s", mask);
@@ -1271,6 +1256,21 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
                                			debug("Failed to set DROM process mask of %d",pids[j]);
                                			return SLURM_ERROR;
                         		}
+					//update extrae infos
+                                        //first stop moved threads
+                                        for(m = 0; m < ncpus; m++)
+                                                if(CPU_ISSET(m, &dlb_masks[k]) && !CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match]))
+                                                        slurmd_extrae_stop_thread(m);
+                                        //then start new ones
+                                        for(m = 0; m < ncpus; m++)
+                                                if(!CPU_ISSET(m, &dlb_masks[k]) && CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match])) {
+                                                        int thread_id = slurmd_get_next_extrae_thread(cpu_steal_infos[i]->job_id, match + 1 + cpu_steal_infos[i]->first_gtid);
+                                                        if(thread_id == -1) {
+                                                                debug("Error with extrae thread ids");
+                                                                break;
+                                                        }
+                                                        slurmd_extrae_start_thread(cpu_steal_infos[i]->job_id, m, match + 1 + cpu_steal_infos[i]->first_gtid, thread_id, -1);
+                                                }
 				}
 			}
 			xfree(step_pids);
@@ -1304,6 +1304,14 @@ int DLB_Drom_reassign_cpus(uint32_t job_id)
 		return SLURM_ERROR;
 	}
         to_destroy = cpu_steal_infos[job_index];
+
+	debug("updating extrae trace");
+        for(i = 0; i < to_destroy->ntasks; i++)
+                for(cpu_id = 0; cpu_id < ncpus; cpu_id++)
+                        if(CPU_ISSET(cpu_id, &to_destroy->assigned_mask[i])) {
+                                slurmd_extrae_stop_thread(cpu_id);
+                        }
+
         if(job_index < (n_active_jobs-1) && n_active_jobs != 1)
                 cpu_steal_infos[job_index] = cpu_steal_infos[n_active_jobs-1];
         n_active_jobs--;
@@ -1326,13 +1334,6 @@ int DLB_Drom_reassign_cpus(uint32_t job_id)
 		debug("expanded shrinked jobs");
 		changes = 1;
 	}
-
-	debug("updating extrae trace");
-        for(i = 0; i < to_destroy->ntasks; i++)
-		for(cpu_id = 0; cpu_id < ncpus; cpu_id++)
-                	if(CPU_ISSET(cpu_id, &to_destroy->assigned_mask[i])) {
-				slurmd_extrae_stop_thread(cpu_id); 
-			}
 
 	//set mask with DLB_Drom APIs
 	if (changes != 0) {
@@ -1571,8 +1572,6 @@ void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id)
 				break;
 			if(CPU_ISSET(cpu_id, &cpu_steal_infos[n_active_jobs-1]->assigned_mask[i])) {
 				cpu_count++;
-//				TODO:same as stop_thread
-//				slurmd_extrae_start_thread(req->job_id, cpu_id + node_id * ncpus, i + 1, j + 1);
 				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1 + cpu_steal_infos[n_active_jobs-1]->first_gtid, cpu_count, node_id);
 			}
 		}

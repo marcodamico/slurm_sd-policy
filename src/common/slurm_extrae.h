@@ -2,6 +2,7 @@
 #define _SLURM_EXTRAE_H
 
 #include "slurm/slurm.h"
+#include "src/slurmctld/slurmctld.h"
 
 #define	IDLE 		0
 #define	RUNNING 	1
@@ -18,9 +19,18 @@ typedef struct extrae_thread {
 	int thread_id;
 } extrae_thread_t;
 
+typedef struct extrae_job {
+        int cpus_per_task;                            //global task id
+	int num_tasks;
+	int ntasks_per_node;
+	bitstr_t *node_bitmap;
+} extrae_job_t;
+
 /* TODO: find a better way for writing header of the trace */
 int slurmctld_extrae_trace_init();
 int slurmctld_extrae_trace_fini();
+
+void slurmctld_extrae_add_job(struct job_record *job_ptr);
 
 int slurmd_extrae_trace_init(int ncpus);
 int slurmd_extrae_trace_fini();

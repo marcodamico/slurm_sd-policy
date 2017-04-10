@@ -471,7 +471,7 @@ static struct job_record *_create_job_record(int *error_code, uint32_t num_jobs)
 			       * hasn't been set yet  */
 	job_ptr->billable_tres = (double)NO_VAL;
 	(void) list_append(job_list, job_ptr);
-
+	slurmctld_extrae_add_job(job_ptr);
 	return job_ptr;
 }
 

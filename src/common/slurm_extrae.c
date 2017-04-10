@@ -10,19 +10,34 @@
 #include "src/common/node_conf.h"
 #include "src/slurmctld/slurmctld.h"
 
+#define MAX_STR_LEN 80
+
+/* Common vars */
+
 //this lock is between threads, I should implement a inter-process lock
 static pthread_mutex_t extrae_lock = PTHREAD_MUTEX_INITIALIZER;
-
 struct timeval init_time;
 int trace_initialized = 0;
 char *trace_prv = "slurm_workload_trace.prv";
+char *trace_body = "slurm_workload_body";
 //char *trace_pcf = "slurm_workload_trace.pcf";
 //char *trace_row = "slurm_workload_trace.row";
-long int trace_prv_header_offset = 0;
+//long int trace_prv_header_offset = 0;
+
+List extrae_job_list = NULL;
+
+
+/* SLURMD variables */
 int n_cpus = 0;
 int first_job = 0;
 extrae_thread_t *extrae_threads;
 int base_cpu_id = -1;
+
+void _destroy_extrae_job_t(void *job)
+{
+	extrae_job_t *_job = (extrae_job_t *) job;
+	FREE_NULL_BITMAP(_job->node_bitmap);
+}
 
 /* Slurmctld init the first line of paraver prv file  */
 int slurmctld_extrae_trace_init()
@@ -32,7 +47,7 @@ int slurmctld_extrae_trace_init()
 	FILE *trace_fp;
 
 	debug("In slurmctld_extrae_trace_init");
-
+	
 	time(&now);
 	tm_now = localtime(&now);
 	
@@ -42,6 +57,8 @@ int slurmctld_extrae_trace_init()
 		return SLURM_SUCCESS;
 	}
 	
+	extrae_job_list = list_create(_destroy_extrae_job_t);
+	
 	trace_fp = fopen(trace_prv,"w");
 	if(!trace_fp) {
 		slurm_mutex_unlock(&extrae_lock);
@@ -50,13 +67,13 @@ int slurmctld_extrae_trace_init()
 
 	fprintf(trace_fp, "#PARAVER (%d/%d/%d at %d:%d):", tm_now->tm_mday, tm_now->tm_mon, tm_now->tm_year + 1900, tm_now->tm_hour, tm_now->tm_min);
 	gettimeofday(&init_time, NULL);
-	trace_prv_header_offset = ftell(trace_fp);
-	fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");
-	fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");
-	fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");
-	fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");
+//	trace_prv_header_offset = ftell(trace_fp);
+//	fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");
+//	fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");
+//	fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");
+//	fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");fprintf(trace_fp,"\n\n\n\n\n\n\n\n\n\n");
 	//use second line to store init_time, as start time in header is limited to hh:mm
-	fprintf(trace_fp, "\n");
+//	fprintf(trace_fp, "\n");
 	fflush(trace_fp);
 	fclose(trace_fp);
 	trace_initialized = 1;
@@ -64,17 +81,27 @@ int slurmctld_extrae_trace_init()
 	return SLURM_SUCCESS;
 }
 
+int _merge_files(FILE *fp1, FILE *fp2)
+{
+	char str[MAX_STR_LEN + 1];
+	
+	while (fgets(str, MAX_STR_LEN, fp2) != NULL) {
+		fputs(str, fp1);
+	}
+	return SLURM_SUCCESS;
+}
+
 /* Slurmctld complete at the end of the execution the first line of 
  * paraver prv file
  */
-int slurmctld_extrae_trace_fini(List job_list, struct node_record *node_table, int node_record_count)
+int slurmctld_extrae_trace_fini(struct node_record *node_table, int node_record_count)
 {
 	struct timeval fini_time;
-	FILE *trace_fp;
+	FILE *trace_fp = NULL, *body_fp = NULL;
 	long elapsed;
 	int i, j, first;
 	ListIterator itr = NULL;
-	struct job_record *job_ptr = NULL;
+	extrae_job_t *job_ptr = NULL;
 
 	debug("In slurmctld_extrae_trace_fini");
 	
@@ -86,12 +113,12 @@ int slurmctld_extrae_trace_fini(List job_list, struct node_record *node_table, i
 		slurm_mutex_unlock(&extrae_lock);
                 return SLURM_ERROR;
 	}
-	trace_fp = fopen(trace_prv, "r+");
+	trace_fp = fopen(trace_prv, "a");
 	if (trace_fp == NULL) {
 		slurm_mutex_unlock(&extrae_lock);
 		return SLURM_ERROR;
 	}
-	fseek(trace_fp, trace_prv_header_offset, SEEK_SET);
+//	fseek(trace_fp, trace_prv_header_offset, SEEK_SET);
 
 	elapsed = (fini_time.tv_sec-init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;	
 
@@ -101,33 +128,54 @@ int slurmctld_extrae_trace_fini(List job_list, struct node_record *node_table, i
 	for(i = 0; i < node_record_count - 1; i++) {
 		fprintf(trace_fp, "%d,", node_table[i].cpus);
 	}
-	fprintf(trace_fp, "%d):%d", node_table[i].cpus, list_count(job_list));
+	fprintf(trace_fp, "%d):%d", node_table[i].cpus, list_count(extrae_job_list));
 	/* print app list */
-	itr = list_iterator_create(job_list);	
+	itr = list_iterator_create(extrae_job_list);	
 	while((job_ptr = list_next(itr))) {
 		//ntasks
 		first = 0;
-		fprintf(trace_fp, ":%d(", job_ptr->details->num_tasks);
+		fprintf(trace_fp, ":%d(", job_ptr->num_tasks);
 		for(i = 0; i < node_record_count; i++) {
 			if (!bit_test(job_ptr->node_bitmap, i))
                                         continue;
-			for(j = 0; j < job_ptr->details->ntasks_per_node; j++)
+			for(j = 0; j < job_ptr->ntasks_per_node; j++)
 				//threads for each task
 				if(!first) {
-					fprintf(trace_fp, "%d:%d", job_ptr->details->cpus_per_task, i + 1);
+					fprintf(trace_fp, "%d:%d", job_ptr->cpus_per_task, i + 1);
 					first = 1;
 				}
 				else
-					fprintf(trace_fp, ",%d:%d", job_ptr->details->cpus_per_task, i + 1);
+					fprintf(trace_fp, ",%d:%d", job_ptr->cpus_per_task, i + 1);
 			}
 		fprintf(trace_fp, ")");
 	}
 	fprintf(trace_fp, "\n");
+
+	if ((body_fp = fopen(trace_body, "r")))
+
+	_merge_files(trace_fp, body_fp);
+	
+	fclose(body_fp);
+	remove(trace_body);
 	fflush(trace_fp);
 	fclose(trace_fp);
-        slurm_mutex_unlock(&extrae_lock);
+        list_destroy(extrae_job_list);
+	slurm_mutex_unlock(&extrae_lock);
 	return SLURM_SUCCESS;
 }
+
+void slurmctld_extrae_add_job(struct job_record *job_ptr)
+{
+	extrae_job_t *new_job = xmalloc(sizeof(extrae_thread_t));
+	new_job->cpus_per_task = job_ptr->details->cpus_per_task;
+	new_job->num_tasks = job_ptr->details->num_tasks;
+	new_job->ntasks_per_node = job_ptr->details->ntasks_per_node;
+	new_job->node_bitmap = bit_copy(job_ptr->node_bitmap);
+
+	list_append(extrae_job_list, new_job);
+}
+
+/* SLURMD functions */
 
 int slurmd_extrae_trace_init(int ncpus)
 {
@@ -150,7 +198,7 @@ int slurmd_extrae_trace_init(int ncpus)
 
 int slurmd_extrae_trace_fini()
 {
-	printf("In slurmd_extrae_trace_fini");
+	debug("In slurmd_extrae_trace_fini");
 	xfree(extrae_threads);
         return SLURM_SUCCESS;
 }
@@ -196,20 +244,20 @@ static int _stop_thread(int cpu_id)
 	debug("In _stop_thread\n");
 
         gettimeofday(&fini_time, NULL);
-        elapsed = (fini_time.tv_sec-init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;
+        elapsed = (fini_time.tv_sec - init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;
 	len = strlen(extrae_threads[cpu_id].entry);
 	sprintf(extrae_threads[cpu_id].entry + len, ":%ld:%d", elapsed, RUNNING);
 
         slurm_mutex_lock(&extrae_lock);
 
-        trace_fp = fopen(trace_prv,"a");
+        trace_fp = fopen(trace_body,"a");
         if (trace_fp == NULL) {
                 slurm_mutex_unlock(&extrae_lock);
                 return SLURM_ERROR;
         }
         fprintf(trace_fp, "%s\n", extrae_threads[cpu_id].entry);
 	extrae_threads[cpu_id].job_id = -1;
-        fflush(trace_fp);
+        //fflush(trace_fp);
 	fclose(trace_fp);
 
         slurm_mutex_unlock(&extrae_lock);
@@ -253,7 +301,7 @@ int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id, i
 	extrae_threads[cpu_id].job_id = job_id;
 	extrae_threads[cpu_id].task_id = task_id;
 	extrae_threads[cpu_id].thread_id = th_id;
-	_print_extrae_threads();
+	//_print_extrae_threads();
 	return SLURM_SUCCESS;
 }
 
@@ -266,6 +314,6 @@ int slurmd_extrae_stop_thread(int cpu_id)
 	if(_stop_thread(cpu_id) != SLURM_SUCCESS)
 		return SLURM_ERROR;
 	extrae_threads[cpu_id].job_id = -1;
-	_print_extrae_threads();
+	//_print_extrae_threads();
 	return SLURM_SUCCESS;
 }

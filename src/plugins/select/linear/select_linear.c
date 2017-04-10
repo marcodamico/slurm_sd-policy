@@ -981,7 +981,7 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		}
 		double penalty = _evaluate_penalty(job_scan_ptr, job_ptr, req_nodes);
 		
-		if(penalty > MAX_PENALTY) {
+		if(penalty >= MAX_PENALTY) {
 			debug("Penalty is too high for job %d: %f", job_scan_ptr->job_id, penalty);
                         njobs--;
                         continue;       /* Job already penalized too much */
@@ -3723,13 +3723,11 @@ static int _will_run_test(struct job_record *job_ptr, bitstr_t *bitmap,
 			      SELECT_MODE_WILL_RUN);
 	i = _filter_by_penalties(job_ptr, bitmap,
 				 min_nodes, max_nodes, req_nodes);
-	debug("I'm in _will_run_test");
+	
 	if (i >= min_nodes) {
-		debug("_job_count_bitmap returned %d nodes", i);
 		rc = _job_test(job_ptr, bitmap, min_nodes, max_nodes,
 			       req_nodes);
 		if (rc == SLURM_SUCCESS) {
-			debug("_job_test returned success");
 			/* I need to find right mates, maybe this can 
 			 * be changes to just calculate penalties
 			 */
@@ -3741,9 +3739,7 @@ static int _will_run_test(struct job_record *job_ptr, bitstr_t *bitmap,
 			job_ptr->start_time = time(NULL);
 			return SLURM_SUCCESS;
 		}
-		debug("Job can't run");
 	}
-	debug("Not enough nodes");
 	/* Job is still pending. Simulate termination of jobs one at a time
 	 * to determine when and where the job can start. */
 	exp_cr = _dup_cr(cr_ptr);
