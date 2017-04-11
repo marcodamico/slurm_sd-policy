@@ -18,12 +18,10 @@
 static pthread_mutex_t extrae_lock = PTHREAD_MUTEX_INITIALIZER;
 struct timeval init_time;
 int trace_initialized = 0;
-char *trace_prv = "slurm_workload_trace.prv";
 char *trace_body = "slurm_workload_body";
-//char *trace_pcf = "slurm_workload_trace.pcf";
-//char *trace_row = "slurm_workload_trace.row";
-//long int trace_prv_header_offset = 0;
 
+/* SLURMCTLD variables */
+char *trace_prv = "slurm_workload_trace.prv";
 List extrae_job_list = NULL;
 
 
@@ -84,7 +82,9 @@ int slurmctld_extrae_trace_init()
 int _merge_files(FILE *fp1, FILE *fp2)
 {
 	char str[MAX_STR_LEN + 1];
-	
+
+	debug2("in _merge_files");	
+
 	while (fgets(str, MAX_STR_LEN, fp2) != NULL) {
 		fputs(str, fp1);
 	}
@@ -151,16 +151,16 @@ int slurmctld_extrae_trace_fini(struct node_record *node_table, int node_record_
 	}
 	fprintf(trace_fp, "\n");
 
-	if ((body_fp = fopen(trace_body, "r")))
-
-	_merge_files(trace_fp, body_fp);
+	if ((body_fp = fopen(trace_body, "r")) != NULL)
+		_merge_files(trace_fp, body_fp);
 	
-	fclose(body_fp);
-	remove(trace_body);
 	fflush(trace_fp);
 	fclose(trace_fp);
-        list_destroy(extrae_job_list);
+        fclose(body_fp);
+	remove(trace_body);
+	list_destroy(extrae_job_list);
 	slurm_mutex_unlock(&extrae_lock);
+	
 	return SLURM_SUCCESS;
 }
 

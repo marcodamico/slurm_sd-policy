@@ -28,7 +28,7 @@ typedef struct extrae_job {
 
 /* TODO: find a better way for writing header of the trace */
 int slurmctld_extrae_trace_init();
-int slurmctld_extrae_trace_fini();
+int slurmctld_extrae_trace_fini(struct node_record *node_table, int node_record_count);
 
 void slurmctld_extrae_add_job(struct job_record *job_ptr);
 

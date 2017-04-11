@@ -69,6 +69,7 @@
 #include "src/common/xassert.h"
 #include "src/common/xstring.h"
 #include "src/common/layouts_mgr.h"
+#include "src/common/slurm_extrae.h"
 
 #include "src/slurmctld/acct_policy.h"
 #include "src/slurmctld/agent.h"
@@ -2047,6 +2048,9 @@ extern void launch_job(struct job_record *job_ptr)
 
 	/* Launch the RPC via agent */
 	agent_queue_request(agent_arg_ptr);
+
+	/* Marco: warn extrae that new job has been scheduled */
+	slurmctld_extrae_add_job(job_ptr);
 }
 
 /*
