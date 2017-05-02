@@ -698,7 +698,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 					//	cpu_requested += step_ptr->cpus_per_task;
 				}
                 		list_iterator_destroy (step_iterator);
-				debug("after analyzing steps, cpu_requested = %d",cpu_requested);
+				//debug("after analyzing steps, cpu_requested = %d",cpu_requested);
 				if(cpu_requested == 0) {
 					if(job_rec_ptr->details->cpus_per_task && job_rec_ptr->details->ntasks_per_node) {
 						cpu_requested = job_rec_ptr->details->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
@@ -711,8 +711,8 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 					}
 				}
 				int tpn = job_rec_ptr->details->ntasks_per_node == 0 ? 1 : job_rec_ptr->details->ntasks_per_node;
-				debug("Job %d runs on node %d: %d req cpus, %d cpt, %d tasks ",
-					 job_rec_ptr->job_id, i, cpu_requested, job_rec_ptr->details->cpus_per_task, tpn);
+				//debug("Job %d runs on node %d: %d req cpus, %d cpt, %d tasks ",
+				//	 job_rec_ptr->job_id, i, cpu_requested, job_rec_ptr->details->cpus_per_task, tpn);
 				//should I consider Jobs that start with reduced cpt
 				nprocs_on_node += tpn;
 				if (cpu_requested <= cpu_free) {
@@ -725,8 +725,8 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 					while (cpu_missing > cpu_stealable)
 						cpu_missing -= tpn; 
                                         assert((cpu_missing + cpu_free) >= tpn);    //if node was allocated for this job means
-														//that we allocated at least the min 
-														//number of cpus (ntasks_per_node)
+										    //that we allocated at least the min 
+										    //number of cpus (ntasks_per_node)
                                         cpu_stealable -= cpu_missing;
                                         cpu_free = 0;
                                 }
@@ -881,6 +881,12 @@ static void _set_mates_penalties(int *mates_list, struct job_record **job_ptrs, 
 			debug("New penalty for job %d: %f %d %f", job_ptrs[i]->job_id, job_ptrs[i]->penalty, overlap, _evaluate_time_penalty(job_ptrs[i], new_job_ptr));
 		}
 }
+/* TODO: find better penalty */
+_set_new_job_penalty(struct job_record *new_job_ptr)
+{
+	return TIME_PENALTY;
+}
+
 
 static int _filter_by_penalties(struct job_record *job_ptr, bitstr_t *bitmap,
                           uint32_t min_nodes, uint32_t max_nodes,
@@ -1030,9 +1036,11 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		bit_and(bitmap, tmp_bitmap);
 		rc = SLURM_SUCCESS;
 	}
-	if(rc == SLURM_SUCCESS)
+	//TODO:do i really need to recalculate penalties
+	if(rc == SLURM_SUCCESS) {
 		_set_mates_penalties(x, ptrs, job_ptr, njobs, bitmap);
-
+		job_ptr->penalty = _set_new_job_penalty(job_ptr);
+	}
 	bit_free(tmp_bitmap);
 	list_iterator_destroy(job_iterator);
 	for(i = 0; i < njobs; i++) {

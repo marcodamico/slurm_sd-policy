@@ -447,7 +447,7 @@ int DLB_Drom_wait_for_dependencies(stepd_step_rec_t *job) {
 		if(counter != steps_count)
 			usleep(DROM_SYNC_WAIT_USECS);
 	}
-	usleep(DROM_SYNC_WAIT_USECS * 500);
+//	usleep(DROM_SYNC_WAIT_USECS * 500);
 	list_iterator_destroy(ii);
         FREE_NULL_LIST(steps);
 	xfree(ready_vector);
