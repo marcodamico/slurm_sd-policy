@@ -2050,7 +2050,7 @@ extern void launch_job(struct job_record *job_ptr)
 	agent_queue_request(agent_arg_ptr);
 
 	/* Marco: warn extrae that new job has been scheduled */
-	slurmctld_extrae_add_job(job_ptr);
+	slurmctld_extrae_start_job(job_ptr);
 }
 
 /*

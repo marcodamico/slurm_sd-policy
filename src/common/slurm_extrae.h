@@ -7,7 +7,7 @@
 #define	IDLE 		0
 #define	RUNNING 	1
 #define	NOT_CREATED 	2
-
+#define WAITING		8
 #define EXTRAE_STRING_LEN 150
 
 typedef struct extrae_thread {
@@ -24,6 +24,7 @@ typedef struct extrae_job {
 	int num_tasks;
 	int ntasks_per_node;
 	bitstr_t *node_bitmap;
+	long arrival_time;
 } extrae_job_t;
 
 /* TODO: find a better way for writing header of the trace */
