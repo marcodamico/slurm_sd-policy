@@ -21,6 +21,7 @@ int trace_initialized = 0;
 char *trace_body = "slurm_workload_body";
 char *trace_body_slurmctld = "slurm_workload_body_slurmctld";
 char trace_body_with_id[MAX_STR_LEN+1];
+int first_job = -1;
 
 /* SLURMCTLD variables */
 char *trace_prv = "slurm_workload_trace.prv";
@@ -29,7 +30,6 @@ List extrae_job_list = NULL;
 
 /* SLURMD variables */
 int n_cpus = 0;
-int first_job = -1;
 extrae_thread_t *extrae_threads;
 int base_cpu_id = -1;
 int node_id = -1;
@@ -99,7 +99,8 @@ int _merge_files(FILE *trace_fp, int n_nodes)
 	
 	for(i = 0; i < n_nodes; i++) {
 		sprintf(trace_body_with_id, "%s_%d",trace_body, i);	
-		if ((body_fp = fopen(trace_body_with_id, "r")) != NULL) {
+		body_fp = fopen(trace_body_with_id, "r");
+		if (body_fp != NULL) {
 			if(_merge_in_file(trace_fp, body_fp) != SLURM_SUCCESS)
 				return SLURM_ERROR;
 			fclose(body_fp);
@@ -170,7 +171,8 @@ int slurmctld_extrae_trace_fini(struct node_record *node_table, int node_record_
 	}
 	fprintf(trace_fp, "\n");
 
-	if ((body_fp = fopen(trace_body_slurmctld,"r")) == NULL)
+	body_fp = fopen(trace_body_slurmctld,"r");
+	if (body_fp == NULL)
 		return SLURM_ERROR;
 	_merge_in_file(trace_fp, body_fp);
 	fclose(body_fp);
@@ -360,7 +362,8 @@ int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id, i
 				base_cpu_id = node_id * n_cpus;
 				sprintf(trace_body_with_id, "%s_%d",trace_body, node_id);
 				//create the file
-				if((fp = fopen(trace_body_with_id,"w")) != NULL)
+				fp = fopen(trace_body_with_id,"w");
+				if(fp != NULL)
 					fclose(fp);
 				else return SLURM_ERROR;
 			}
