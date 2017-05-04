@@ -233,7 +233,7 @@ int slurmctld_extrae_start_job(struct job_record *job_ptr)
 	
 	elapsed = (fini_time.tv_sec-init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;	
 	body_fp = fopen(trace_body_slurmctld, "a");
-	fprintf(body_fp, "1:1:%d:1:1:%ld%ld%d",job->job_id - first_job, job->arrival_time, elapsed, WAITING);
+	fprintf(body_fp, "1:1:%d:1:1:%ld:%ld:%d\n",job->job_id - first_job, job->arrival_time, elapsed, WAITING);
 	fclose(body_fp);
 	list_append(extrae_job_list, job);
 	return SLURM_SUCCESS;
