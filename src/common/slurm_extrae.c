@@ -29,7 +29,7 @@ List extrae_job_list = NULL;
 
 /* SLURMD variables */
 int n_cpus = 0;
-int first_job = 0;
+int first_job = -1;
 extrae_thread_t *extrae_threads;
 int base_cpu_id = -1;
 int node_id = -1;
@@ -189,10 +189,14 @@ int slurmctld_extrae_trace_fini(struct node_record *node_table, int node_record_
 void slurmctld_extrae_add_job_to_queue(struct job_record *job_ptr)
 {
 	struct timeval fini_time;
-        long elapsed;
+
+	debug("In slurmctld_extrae_add_job_to_queue");
 
         gettimeofday(&fini_time, NULL);
 	extrae_job_t *new_job = xmalloc(sizeof(extrae_thread_t));
+	new_job->job_id = job_ptr->job_id;
+	if (first_job == -1)
+		first_job = job_ptr->job_id - 1;
 	new_job->arrival_time = (fini_time.tv_sec-init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;
 	
 	list_append(extrae_job_list, new_job);
@@ -201,17 +205,21 @@ void slurmctld_extrae_add_job_to_queue(struct job_record *job_ptr)
 int find_job_per_id(void *x, void *key)
 {
 	extrae_job_t *job = (extrae_job_t *) x;
-	if (job->job_id == (int)*key)
+	int *jobid = (int *) key;
+	if (job->job_id == *jobid)
 		return 1;
 	return 0;
 }
 
-void slurmctld_extrae_start_job(struct job_record *job_ptr)
+int slurmctld_extrae_start_job(struct job_record *job_ptr)
 {
 	struct timeval fini_time;
 	long elapsed;
+	FILE *body_fp;
 
-	extrae_job_t *job = list_find_first(extrae_job_list, find_job_per_id ,job_ptr->job_id);
+	debug("In slurmctld_extrae_start_job");
+
+	extrae_job_t *job = list_find_first(extrae_job_list, find_job_per_id , (void *)&job_ptr->job_id);
 	if (job == NULL) {
 		debug("job not found");
 		return SLURM_ERROR;
@@ -224,10 +232,11 @@ void slurmctld_extrae_start_job(struct job_record *job_ptr)
 	job->node_bitmap = bit_copy(job_ptr->node_bitmap);
 	
 	elapsed = (fini_time.tv_sec-init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;	
-	fopen(trace_body_slurmctld, "a");
-//	fprintf(trace_body_slurmctld,"1:%d:%d:%d:%d:%ld%ld%d",  , WAITING);
-	fclose(trace_body_slurmctld);
-	list_append(extrae_job_list, new_job);
+	body_fp = fopen(trace_body_slurmctld, "a");
+	fprintf(body_fp, "1:1:%d:1:1:%ld%ld%d",job->job_id - first_job, job->arrival_time, elapsed, WAITING);
+	fclose(body_fp);
+	list_append(extrae_job_list, job);
+	return SLURM_SUCCESS;
 }
 
 /* SLURMD functions */
@@ -281,12 +290,15 @@ int slurmd_get_next_extrae_thread(int job_id, int task_id)
 
 static void _start_thread(int cpu_id, int app_id, int task_id, int th_id)
 {
-	debug("_start_thread\n");
+	struct timeval fini_time;
+	long elapsed;
 
-        struct timeval fini_time;
+	debug("_start_thread\n");
+	
         gettimeofday(&fini_time, NULL);
-        long elapsed = (fini_time.tv_sec-init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;
-        sprintf(extrae_threads[cpu_id].entry, "1:%d:%d:%d:%d:%ld", cpu_id + 1 + base_cpu_id, app_id, task_id, th_id, elapsed);
+        elapsed = (fini_time.tv_sec-init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;
+        
+	sprintf(extrae_threads[cpu_id].entry, "1:%d:%d:%d:%d:%ld", cpu_id + 1 + base_cpu_id, app_id, task_id, th_id, elapsed);
 }
 
 static int _stop_thread(int cpu_id)
@@ -340,7 +352,7 @@ int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id, i
 		return SLURM_ERROR;
 	}
 	
-	if (!first_job) {
+	if (first_job == -1) {
 		first_job = job_id - 1;
 		if(base_cpu_id == -1) {
 			if (nodeid != -1) {

@@ -81,6 +81,8 @@
 #include "src/common/xassert.h"
 #include "src/common/xstring.h"
 
+#include "src/common/slurm_extrae.h"
+
 #include "src/slurmctld/acct_policy.h"
 #include "src/slurmctld/agent.h"
 #include "src/slurmctld/burst_buffer.h"
@@ -4201,6 +4203,8 @@ extern int job_allocate(job_desc_msg_t * job_specs, int immediate,
 		       job_ptr->job_id, job_ptr->nodes);
 		rebuild_job_part_list(job_ptr);
 	}
+
+	slurmctld_extrae_add_job_to_queue(job_ptr);	
 
 	return SLURM_SUCCESS;
 }
