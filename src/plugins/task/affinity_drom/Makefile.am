@@ -7,7 +7,7 @@ PLUGIN_FLAGS = -module -avoid-version --export-dynamic
 AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src/common $(HWLOC_CPPFLAGS) -I$(DLB_HOME)/include
 
 if HAVE_SCHED_SETAFFINITY
-pkglib_LTLIBRARIES = task_affinity.la
+pkglib_LTLIBRARIES = task_affinity_drom.la
 task_affinity_la_SOURCES = 	\
 	affinity.c affinity.h \
 	cpuset.c \

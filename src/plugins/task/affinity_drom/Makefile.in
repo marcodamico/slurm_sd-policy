@@ -167,9 +167,9 @@ task_affinity_la_LIBADD =
 am__task_affinity_la_SOURCES_DIST = affinity.c affinity.h cpuset.c \
 	dist_tasks.c dist_tasks.h numa.c schedutils.c task_affinity.c
 @HAVE_SCHED_SETAFFINITY_TRUE@am_task_affinity_la_OBJECTS =  \
-@HAVE_SCHED_SETAFFINITY_TRUE@	affinity.lo cpuset.lo \
-@HAVE_SCHED_SETAFFINITY_TRUE@	dist_tasks.lo numa.lo \
-@HAVE_SCHED_SETAFFINITY_TRUE@	schedutils.lo task_affinity.lo
+@HAVE_SCHED_SETAFFINITY_TRUE@	affinity_drom.lo cpuset_drom.lo \
+@HAVE_SCHED_SETAFFINITY_TRUE@	dist_tasks_drom.lo numa_drom.lo \
+@HAVE_SCHED_SETAFFINITY_TRUE@	schedutils_drom.lo task_affinity_drom.lo
 am__EXTRA_task_affinity_la_SOURCES_DIST = affinity.c affinity.h \
 	cpuset.c dist_tasks.c dist_tasks.h numa.c schedutils.c \
 	task_affinity.c
@@ -496,7 +496,7 @@ AUTOMAKE_OPTIONS = foreign
 PLUGIN_FLAGS = -module -avoid-version --export-dynamic
 AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src/common $(HWLOC_CPPFLAGS) -I$(DLB_HOME)/include
 @HAVE_SCHED_SETAFFINITY_FALSE@pkglib_LTLIBRARIES = 
-@HAVE_SCHED_SETAFFINITY_TRUE@pkglib_LTLIBRARIES = task_affinity.la
+@HAVE_SCHED_SETAFFINITY_TRUE@pkglib_LTLIBRARIES = task_affinity_drom.la
 @HAVE_SCHED_SETAFFINITY_TRUE@task_affinity_la_SOURCES = \
 @HAVE_SCHED_SETAFFINITY_TRUE@	affinity.c affinity.h \
 @HAVE_SCHED_SETAFFINITY_TRUE@	cpuset.c \
@@ -584,7 +584,7 @@ clean-pkglibLTLIBRARIES:
 	  rm -f $${locs}; \
 	}
 
-task_affinity.la: $(task_affinity_la_OBJECTS) $(task_affinity_la_DEPENDENCIES) $(EXTRA_task_affinity_la_DEPENDENCIES) 
+task_affinity_drom.la: $(task_affinity_la_OBJECTS) $(task_affinity_la_DEPENDENCIES) $(EXTRA_task_affinity_la_DEPENDENCIES) 
 	$(AM_V_CCLD)$(task_affinity_la_LINK) $(am_task_affinity_la_rpath) $(task_affinity_la_OBJECTS) $(task_affinity_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
@@ -593,12 +593,12 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/affinity.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cpuset.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dist_tasks.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/numa.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/schedutils.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/task_affinity.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/affinity_drom.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cpuset_dorm.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dist_tasks_drom.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/numa_drom.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/schedutils_drom.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/task_affinity_drom.Plo@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
