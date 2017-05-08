@@ -87,6 +87,7 @@
 int MAX_PENALTY = 5;
 int MIX_WITH_FREE = 1;
 double TIME_PENALTY = 5.0f;
+double SIZE_PENALTY = 1.0f;
 /* These are defined here so when we link with something other than
  * the slurmctld we will have these symbols defined.  They will get
  * overwritten when linking with the slurmctld.
@@ -818,8 +819,9 @@ static double _evaluate_penalty(struct job_record *job_scan_ptr, struct job_reco
 {
 	//TODO: I can check how many cpus i can use/steal in allocated nodes
 	//	if i can't steal max penalize this job!!!
-	double time_penalty = _evaluate_time_penalty(job_scan_ptr, new_job_ptr); 
-	return job_scan_ptr->penalty + abs(req_nodes - job_scan_ptr->node_cnt) / req_nodes + time_penalty;
+	double time_penalty = _evaluate_time_penalty(job_scan_ptr, new_job_ptr);
+	double size_penalty = abs(req_nodes - job_scan_ptr->node_cnt) / req_nodes * SIZE_PENALTY;
+	return job_scan_ptr->penalty + size_penalty + time_penalty;
 }
 
 static void *memdup(const void *mem, size_t size) { 
