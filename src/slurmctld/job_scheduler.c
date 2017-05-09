@@ -2050,7 +2050,9 @@ extern void launch_job(struct job_record *job_ptr)
 	agent_queue_request(agent_arg_ptr);
 
 	/* Marco: warn extrae that new job has been scheduled */
-	slurmctld_extrae_start_job(job_ptr);
+//	if (slurmctld_extrae_start_job(job_ptr, node_record_table_ptr) != SLURM_SUCCESS)
+	if (slurmctld_extrae_start_job(job_ptr) != SLURM_SUCCESS)
+		debug("Error in slurmctld_extrae_start_job");
 }
 
 /*

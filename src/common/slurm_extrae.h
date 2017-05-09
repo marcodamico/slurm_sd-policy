@@ -33,6 +33,7 @@ int slurmctld_extrae_trace_init();
 int slurmctld_extrae_trace_fini(struct node_record *node_table, int node_record_count);
 
 void slurmctld_extrae_add_job_to_queue(struct job_record *job_ptr);
+//int slurmctld_extrae_start_job(struct job_record *job_ptr, struct node_record *node_table);
 int slurmctld_extrae_start_job(struct job_record *job_ptr);
 
 int slurmd_extrae_trace_init(int ncpus);
