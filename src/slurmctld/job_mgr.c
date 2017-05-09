@@ -4045,6 +4045,9 @@ extern int job_allocate(job_desc_msg_t * job_specs, int immediate,
 		return error_code;
 	}
 	xassert(job_ptr);
+	
+	slurmctld_extrae_add_job_to_queue(job_ptr);	
+
 	if (job_specs->array_bitmap)
 		independent = false;
 	else
@@ -4203,8 +4206,6 @@ extern int job_allocate(job_desc_msg_t * job_specs, int immediate,
 		       job_ptr->job_id, job_ptr->nodes);
 		rebuild_job_part_list(job_ptr);
 	}
-
-	slurmctld_extrae_add_job_to_queue(job_ptr);	
 
 	return SLURM_SUCCESS;
 }
