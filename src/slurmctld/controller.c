@@ -643,15 +643,8 @@ int main(int argc, char *argv[])
 
 	layouts_fini();
 	g_slurm_jobcomp_fini();
-<<<<<<< HEAD
 	if (slurmctld_extrae_trace_fini(node_record_table_ptr, node_record_count))
 		debug("Error in slurmctld_extrae_trace_fini");
-||||||| merged common ancestors
-
-=======
-	if (slurmctld_extrae_trace_fini(job_list, node_record_table_ptr, node_record_count))
-		debug("Error in slurmctld_extrae_trace_fini");
->>>>>>> 7cd1e49713c843834c2fdf4232a46afd286636db
 	/* Since pidfile is created as user root (its owner is
 	 *   changed to SlurmUser) SlurmUser may not be able to
 	 *   remove it, so this is not necessarily an error. */

@@ -86,8 +86,8 @@
 
 int MAX_PENALTY = 5;
 int MIX_WITH_FREE = 1;
-double TIME_PENALTY = 5.0f;
-double SIZE_PENALTY = 1.0f;
+double TIME_PENALTY = 0.0f;
+double SIZE_PENALTY = 0.0f;
 /* These are defined here so when we link with something other than
  * the slurmctld we will have these symbols defined.  They will get
  * overwritten when linking with the slurmctld.
@@ -884,7 +884,7 @@ static void _set_mates_penalties(int *mates_list, struct job_record **job_ptrs, 
 		}
 }
 /* TODO: find better penalty */
-_set_new_job_penalty(struct job_record *new_job_ptr)
+double _set_new_job_penalty(struct job_record *new_job_ptr)
 {
 	return TIME_PENALTY;
 }
@@ -894,6 +894,7 @@ static int _filter_by_penalties(struct job_record *job_ptr, bitstr_t *bitmap,
                           uint32_t min_nodes, uint32_t max_nodes,
                           uint32_t req_nodes)
 {
+	int i;
 	ListIterator job_iterator;
         struct job_record *job_scan_ptr;
 	job_iterator = list_iterator_create(job_list);
@@ -928,12 +929,14 @@ static int _filter_by_penalties(struct job_record *job_ptr, bitstr_t *bitmap,
                 }
                 double penalty = _evaluate_penalty(job_scan_ptr, job_ptr, req_nodes);
 
-                if(penalty > MAX_PENALTY) {
+                if (penalty > MAX_PENALTY) {
                         debug("Penalty is too high for job %d: %f", job_scan_ptr->job_id, penalty);
                         njobs--;
-			int i;
-                        for(i = 0; i < bit_set_count(job_scan_ptr->node_bitmap); i++)
-				bit_clear(bitmap, i);
+                        for(i = 0; i < bit_size(job_scan_ptr->node_bitmap); i++)
+				if (bit_test(job_scan_ptr->node_bitmap, i)) {
+					debug("removing node %d", i);
+					bit_clear(bitmap, i);
+				}
 			continue;       /* Job already penalized too much */
                 }
         }
@@ -3731,15 +3734,17 @@ static int _will_run_test(struct job_record *job_ptr, bitstr_t *bitmap,
 	i = _job_count_bitmap(cr_ptr, job_ptr, orig_map, bitmap,
 			      max_run_jobs, NO_SHARE_LIMIT,
 			      SELECT_MODE_WILL_RUN);
+	debug("After _job_count_bitmap nodes are %d", i);
 	i = _filter_by_penalties(job_ptr, bitmap,
 				 min_nodes, max_nodes, req_nodes);
-	
+	debug("After _filter_by_penalties nodes are %d", i);
 	if (i >= min_nodes) {
 		rc = _job_test(job_ptr, bitmap, min_nodes, max_nodes,
 			       req_nodes);
 		if (rc == SLURM_SUCCESS) {
+			debug("_job_test returned SUCCESS");
 			/* I need to find right mates, maybe this can 
-			 * be changes to just calculate penalties
+			 * be changed to just calculate penalties
 			 */
 			/*rc = _find_job_mates(job_ptr, bitmap,
                                              NULL, min_nodes,
