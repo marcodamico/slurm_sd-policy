@@ -5,6 +5,8 @@
 #include <sys/time.h>
 #include <string.h>
 
+#include "slurm/slurm.h"
+
 #include "src/common/slurm_extrae.h"
 #include "src/common/list.h"
 #include "src/common/xmalloc.h"
@@ -250,10 +252,11 @@ slurmctld_extrae_start_job(struct job_record *job_ptr)
 
 /* SLURMD functions */
 
-int slurmd_extrae_trace_init(int ncpus)
+int slurmd_extrae_trace_init(int ncpus, char *node_name)
 {
         int i;
 	FILE *time_fp;
+	node_info_msg_t *node_info_ptr = NULL;
 	debug("In slurmd_extrae_trace_init");
 
 	if(trace_initialized)
@@ -270,6 +273,23 @@ int slurmd_extrae_trace_init(int ncpus)
         for(i = 0; i < n_cpus; i++) {
                 extrae_threads[i].job_id = -1;
 	}
+	if (slurm_load_node((time_t) NULL, &node_info_ptr, SHOW_ALL) ) {
+		debug("slurm_load_node error");
+		return SLURM_ERROR;
+	}
+	for (i = 0; i < node_info_ptr->record_count; i++)
+		if(strcmp(node_name, node_info_ptr->node_array[i].name) == 0)
+			node_id = i;
+	slurm_free_node_info_msg(node_info_ptr);
+	if (node_id == -1)
+		return SLURM_ERROR;
+	base_cpu_id = node_id * n_cpus;
+        sprintf(trace_body_with_id, "%s_%d",trace_body, node_id);
+        //create the file
+        body_fp = fopen(trace_body_with_id,"w");
+        if (body_fp == NULL)
+        	return SLURM_ERROR;
+
 	trace_initialized = 1;
         return SLURM_SUCCESS;
 }
@@ -355,34 +375,17 @@ static int _print_extrae_threads()
 	return 0;
 }
 
-int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id, int nodeid)
+int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id)
 {
 	int app_id;
 	debug("In slurmd_extrae_start_thread\n");
-
 	if (slurmd_extrae_stop_thread(cpu_id) != SLURM_SUCCESS) {
 		debug("Error in slurmd_extrae_stop_thread");
 		return SLURM_ERROR;
 	}
 	
-	if (first_job == -1) {
+	if (first_job == -1)
 		first_job = job_id - 1;
-		if(base_cpu_id == -1) {
-			if (nodeid != -1) {
-				node_id = nodeid;
-				base_cpu_id = node_id * n_cpus;
-				sprintf(trace_body_with_id, "%s_%d",trace_body, node_id);
-				//create the file
-				body_fp = fopen(trace_body_with_id,"w");
-				if(body_fp == NULL)
-					return SLURM_ERROR;
-			}
-			else {
-				debug("Error: node id not provided!");
-				return SLURM_ERROR;
-			}
-		}
-	}
 	app_id = job_id - first_job;
 	_start_thread(cpu_id, app_id, task_id, th_id);
 	extrae_threads[cpu_id].job_id = job_id;

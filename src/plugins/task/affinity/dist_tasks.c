@@ -1247,27 +1247,6 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					}
 					debug("mask of pid %d changed, maxc = %d", pids[k], maxc);
 					char mask[1 + CPU_SETSIZE / 4];
-<<<<<<< HEAD
-
-||||||| merged common ancestors
-=======
-					//update extrae infos
-					//first stop moved threads
-					for(m = 0; m < ncpus; m++)
-						if(CPU_ISSET(m, &dlb_masks[k]) && !CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match]))
-							slurmd_extrae_stop_thread(m);
-					//then start new ones
-					for(m = 0; m < ncpus; m++)
-                                                if(!CPU_ISSET(m, &dlb_masks[k]) && CPU_ISSET(m, &cpu_steal_infos[i]->assigned_mask[match])) {
-							int thread_id = slurmd_get_next_extrae_thread(cpu_steal_infos[i]->job_id, match + 1 + cpu_steal_infos[i]->first_gtid);
-							if(thread_id == -1) {
-								debug("Error with extrae thread ids");
-								break;
-							}
-							slurmd_extrae_start_thread(cpu_steal_infos[i]->job_id, m, match + 1 + cpu_steal_infos[i]->first_gtid, thread_id, -1);
-						}
-
->>>>>>> 7cd1e49713c843834c2fdf4232a46afd286636db
 					cpuset_to_str(&cpu_steal_infos[i]->assigned_mask[match], mask);
 					debug("new mask: %s", mask);
 					cpuset_to_str(&dlb_masks[k], mask);
@@ -1289,7 +1268,7 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
                                                                 debug("Error with extrae thread ids");
                                                                 break;
                                                         }
-                                                        slurmd_extrae_start_thread(cpu_steal_infos[i]->job_id, m, match + 1 + cpu_steal_infos[i]->first_gtid, thread_id, -1);
+                                                        slurmd_extrae_start_thread(cpu_steal_infos[i]->job_id, m, match + 1 + cpu_steal_infos[i]->first_gtid, thread_id);
                                                 }
 				}
 			}
@@ -1624,9 +1603,15 @@ void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id)
 				break;
 			if(CPU_ISSET(cpu_id, &cpu_steal_infos[n_active_jobs-1]->assigned_mask[i])) {
 				cpu_count++;
+<<<<<<< HEAD
 //				TODO:same as stop_thread
 //				slurmd_extrae_start_thread(req->job_id, cpu_id + node_id * ncpus, i + 1, j + 1);
 				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1 + cpu_steal_infos[n_active_jobs-1]->first_gtid, cpu_count, node_id);
+||||||| parent of 1b17cc0... Extrae fix in node ids management, now each slurmd in extrae init() asks slurmctld the node list and assign itseld an id based on the position of itself in the list
+				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1 + cpu_steal_infos[n_active_jobs-1]->first_gtid, cpu_count, node_id);
+=======
+				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1 + cpu_steal_infos[n_active_jobs-1]->first_gtid, cpu_count);
+>>>>>>> 1b17cc0... Extrae fix in node ids management, now each slurmd in extrae init() asks slurmctld the node list and assign itseld an id based on the position of itself in the list
 			}
 		}
 	}
