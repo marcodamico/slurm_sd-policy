@@ -735,6 +735,8 @@ struct job_record {
 	time_t time_last_active;	/* time of last job activity */
 	uint32_t time_limit;		/* time_limit minutes or INFINITE,
 					 * NO_VAL implies partition max_time */
+	uint32_t original_time_limit;	/* Used to calculate slowdown in case of 
+					 * malleability decisions */
 	uint32_t time_min;		/* minimum time_limit minutes or
 					 * INFINITE,
 					 * zero implies same as time_limit */
@@ -769,9 +771,6 @@ struct job_record {
 	uint32_t wait4switch; /* Maximum time to wait for minimum switches */
 	bool     best_switch; /* true=min number of switches met           */
 	time_t wait4switch_start; /* Time started waiting for switch       */
-
-	/* Marco: my parameters*/
-	double penalty;                    /* Penalization due to malleability */
 };
 
 /* Job dependency specification, used in "depend_list" within job_record */
