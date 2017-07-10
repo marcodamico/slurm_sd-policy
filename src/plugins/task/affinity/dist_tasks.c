@@ -54,7 +54,7 @@
 #include <hwloc.h>
 #endif
 
-#include "DLB_interface.h"
+#include "dlb_drom.h"
 #include "src/common/slurm_extrae.h"
 #include <time.h> //for timing
 #include <sys/time.h> //for timing
@@ -433,7 +433,7 @@ int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids)
         cpu_set_t *masks;
 
 	debug("In get_DLB_procs_masks");
-	DLB_Drom_GetPidList(dlb_pids, npids, MAX_PROCS);
+	DLB_DROM_GetPidList(dlb_pids, npids, MAX_PROCS);
 
         debug("DLB found %d processes", *npids);
         if(*npids == 0) {
@@ -445,7 +445,7 @@ int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids)
 
         for(j = 0; j < *npids; j++)
                 if((error = 
-		    DLB_Drom_GetProcessMask(dlb_pids[j], &masks[j]))) {
+		    DLB_DROM_GetProcessMask(dlb_pids[j], &masks[j]))) {
                         debug("Error in DLB_Drom_GetProcessMask for pid %d, "
 			      "error %d", dlb_pids[j], error);
 			xfree(masks);
@@ -1251,7 +1251,7 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					debug("new mask: %s", mask);
 					cpuset_to_str(&dlb_masks[k], mask);
 					debug("old mask: %s", mask);
-					if(DLB_Drom_SetProcessMask(pids[k],(dlb_cpu_set_t) &cpu_steal_infos[i]->assigned_mask[match])) {
+					if(DLB_DROM_SetProcessMask(pids[k],(dlb_cpu_set_t) &cpu_steal_infos[i]->assigned_mask[match])) {
                                			debug("Failed to set DROM process mask of %d",pids[j]);
                                			return SLURM_ERROR;
                         		}
@@ -1333,19 +1333,12 @@ int DLB_Drom_reassign_cpus(uint32_t job_id)
 		debug("expanded shrinked jobs");
 		changes = 1;
 	}
-<<<<<<< HEAD
-
-||||||| merged common ancestors
-=======
-
-	debug("updating extrae trace");
         for(i = 0; i < to_destroy->ntasks; i++)
 		for(cpu_id = 0; cpu_id < ncpus; cpu_id++)
                 	if(CPU_ISSET(cpu_id, &to_destroy->assigned_mask[i])) {
 				slurmd_extrae_stop_thread(cpu_id); 
 			}
 
->>>>>>> 7cd1e49713c843834c2fdf4232a46afd286636db
 	//set mask with DLB_Drom APIs
 	if (changes != 0) {
 		if(get_DLB_procs_masks(pids, &dlb_masks, &npids) != SLURM_SUCCESS)
@@ -1570,7 +1563,6 @@ void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id)
 	}
 	debug("Assigned mask, auto generated case:");
 	print_cpu_steal_info(cpu_steal_infos[n_active_jobs-1]);
-<<<<<<< HEAD
 	
 	debug("extrae info generation");
 	int cpu_id, cpu_count;
@@ -1584,38 +1576,10 @@ void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id)
 				break;
 			if(CPU_ISSET(cpu_id, &cpu_steal_infos[n_active_jobs-1]->assigned_mask[i])) {
 				cpu_count++;
-				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1 + cpu_steal_infos[n_active_jobs-1]->first_gtid, cpu_count, node_id);
-			}
-		}
-	}
-||||||| merged common ancestors
-=======
-	
-	debug("extrae info generation");
-	int cpu_id, cpu_count;
-
-	cpu_steal_infos[n_active_jobs-1]->first_gtid = gtid[0];
-
-	for(i = 0; i < req->tasks_to_launch[node_id]; i++) {
-		cpu_count = 0;
-		for(cpu_id = 0; cpu_id < ncpus; cpu_id++) {
-			if(cpu_count > req->cpus_per_task)
-				break;
-			if(CPU_ISSET(cpu_id, &cpu_steal_infos[n_active_jobs-1]->assigned_mask[i])) {
-				cpu_count++;
-<<<<<<< HEAD
-//				TODO:same as stop_thread
-//				slurmd_extrae_start_thread(req->job_id, cpu_id + node_id * ncpus, i + 1, j + 1);
-				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1 + cpu_steal_infos[n_active_jobs-1]->first_gtid, cpu_count, node_id);
-||||||| parent of 1b17cc0... Extrae fix in node ids management, now each slurmd in extrae init() asks slurmctld the node list and assign itseld an id based on the position of itself in the list
-				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1 + cpu_steal_infos[n_active_jobs-1]->first_gtid, cpu_count, node_id);
-=======
 				slurmd_extrae_start_thread(req->job_id, cpu_id, i + 1 + cpu_steal_infos[n_active_jobs-1]->first_gtid, cpu_count);
->>>>>>> 1b17cc0... Extrae fix in node ids management, now each slurmd in extrae init() asks slurmctld the node list and assign itseld an id based on the position of itself in the list
 			}
 		}
 	}
->>>>>>> 7cd1e49713c843834c2fdf4232a46afd286636db
 //	char *tok, *save_ptr;
 //	int i = 0;
 //	tok = strtok_r(req->cpu_bind, ",", &save_ptr);
