@@ -84,7 +84,7 @@
 #define RUN_JOB_INCR	16
 #define SELECT_DEBUG	0
 
-int MAX_SLOWDOWN = 5;
+float MAX_SLOWDOWN = 3.0f;
 int MIX_WITH_FREE = 1;
 
 typedef struct job_unit {
@@ -159,6 +159,8 @@ static void _free_cr(struct cr_record *cr_ptr);
 static int _get_avail_cpus(struct job_record *job_ptr, int index);
 static uint16_t _get_total_cpus(int index);
 static void _init_node_cr(void);
+static int _filter_malleable_node(struct job_record *job_ptr, 
+				  int node_id, int cpu_cnt);
 static int _job_count_bitmap(struct cr_record *cr_ptr,
 			     struct job_record *job_ptr,
 			     bitstr_t * bitmap, bitstr_t * jobmap,
@@ -555,6 +557,94 @@ static void _build_select_struct(struct job_record *job_ptr, bitstr_t *bitmap)
 	}
 }
 
+static int _filter_malleable_node(struct job_record *job_ptr, int node_id, int cpu_cnt)
+{
+	slurm_ctl_conf_t *config = slurm_conf_lock();
+        float DLB_share_factor = config->sharing_factor;
+        slurm_conf_unlock();
+        ListIterator job_iterator, step_iterator;
+        struct job_record *job_rec_ptr;
+        struct step_record *step_ptr;
+        uint16_t cpu_stealable;
+        uint16_t cpu_free;
+        uint16_t cpu_missing;
+        uint16_t cpu_requested;
+
+        cpu_stealable = cpu_cnt * DLB_share_factor;
+        cpu_free = cpu_cnt;
+        int nprocs_on_node = 0;
+
+        job_iterator = list_iterator_create(job_list);
+        while ((job_rec_ptr = (struct job_record *) list_next(job_iterator)) && cpu_stealable > 0) {
+        	//TODO: add malleable job check
+	        if (!IS_JOB_RUNNING(job_rec_ptr)) {
+                        continue;
+                }
+                if(job_rec_ptr->node_bitmap && bit_test(job_rec_ptr->node_bitmap, node_id)) {
+                        //TODO: fix this
+                        cpu_requested = 0;
+                        step_iterator = list_iterator_create(job_rec_ptr->step_list);
+                        while ((step_ptr = (struct step_record *)
+                           list_next (step_iterator))) {
+                                if(!step_ptr->step_node_bitmap || step_ptr->batch_step || !bit_test(step_ptr->step_node_bitmap, node_id))
+                                        continue;
+//                              cpu_count is the total amount among all nodes
+//                              if(step_ptr->cpu_count dd!= 0)
+//                                      cpu_requested += step_ptr->cpu_count;
+                                //TODO: should I save srun ntasks info in step_ptr?
+                                if(step_ptr->cpus_per_task && job_rec_ptr->details->ntasks_per_node)
+                                        cpu_requested += step_ptr->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
+                                //else
+                                //      cpu_requested += step_ptr->cpus_per_task;
+                        }
+                        list_iterator_destroy (step_iterator);
+                        //debug("after analyzing steps, cpu_requested = %d",cpu_requested);
+                        if(cpu_requested == 0) {
+                                if(job_rec_ptr->details->cpus_per_task && job_rec_ptr->details->ntasks_per_node) {
+                                        cpu_requested = job_rec_ptr->details->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
+                                }
+                                else if(job_rec_ptr->details->cpus_per_task) {
+                                        cpu_requested = job_rec_ptr->details->cpus_per_task;
+                                }
+                                else {
+                                        cpu_requested = 1;
+                                }
+                        }
+                        int tpn = job_rec_ptr->details->ntasks_per_node == 0 ? 1 : job_rec_ptr->details->ntasks_per_node;
+                        //debug("Job %d runs on node %d: %d req cpus, %d cpt, %d tasks ",
+                        //       job_rec_ptr->job_id, i, cpu_requested, job_rec_ptr->details->cpus_per_task, tpn);
+                        //should I consider Jobs that start with reduced cpt
+                        nprocs_on_node += tpn;
+                        if (cpu_requested <= cpu_free) {
+                                cpu_free -= cpu_requested;
+                                if (nprocs_on_node > cpu_stealable)
+                                        cpu_stealable = cpu_cnt - nprocs_on_node;
+                        }
+                        else { //steal was necessary
+                                cpu_missing = cpu_requested - cpu_free;
+                                while (cpu_missing > cpu_stealable)
+                                        cpu_missing -= tpn;
+                                assert((cpu_missing + cpu_free) >= tpn);    //if node was allocated for this job means
+                                                                            //that we allocated at least the min 
+                                                                            //number of cpus (ntasks_per_node)
+                                cpu_stealable -= cpu_missing;
+                                cpu_free = 0;
+                        }
+                }
+        }
+        list_iterator_destroy(job_iterator);
+	debug("Stealable cpus %d, free %d in node %d", cpu_stealable, cpu_free, node_id);
+        //TODO: fix default value for tpn
+        if((job_ptr->details->ntasks_per_node && 
+	   (cpu_free + cpu_stealable < job_ptr->details->ntasks_per_node)) || 
+	   (cpu_free + cpu_stealable < 1)) {
+                debug("Job %d cannot be allocated on node %d for lack of stealable cpus",
+		      job_ptr->job_id, node_id);
+		return 1;
+           }
+	return 0;
+}
+
 /*
  * Set the bits in 'jobmap' that correspond to bits in the 'bitmap'
  * that are running 'run_job_cnt' jobs or less, and clear the rest.
@@ -574,17 +664,6 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 	int core_start_bit, core_end_bit, cpus_per_core;
 	List gres_list;
 	bool use_total_gres = true;
-
-	slurm_ctl_conf_t *config = slurm_conf_lock();
-        float DLB_share_factor = config->sharing_factor;
-        slurm_conf_unlock();
-        ListIterator job_iterator, step_iterator;
-        struct job_record *job_rec_ptr;
-        struct step_record *step_ptr;
-	uint16_t cpu_stealable;
-        uint16_t cpu_free;
-        uint16_t cpu_missing;
-        uint16_t cpu_requested;
 
 	xassert(cr_ptr);
 	xassert(cr_ptr->nodes);
@@ -607,7 +686,9 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 	if (i_first == -1)	/* job has no nodes */
 		i_last = -2;
 	for (i = i_first; i <= i_last; i++) {
+		debug("node %d", i);
 		if (!bit_test(bitmap, i)) {
+			debug("node %d not set", i);
 			bit_clear(jobmap, i);
 			continue;
 		}
@@ -637,6 +718,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 			    ((job_ptr->details->cpus_per_task > 1) &&
 			     (gres_cpus < job_ptr->details->cpus_per_task))) {
 				bit_clear(jobmap, i);
+				debug("gres ");
 				continue;
 			}
 		}
@@ -664,90 +746,33 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 			}
 			avail_mem -= node_ptr->mem_spec_limit;
 			if ((alloc_mem + job_mem) > avail_mem) {
+				debug("qualcosa di memoria");
 				bit_clear(jobmap, i);
 				continue;
 			}
 		}
 
-		if ((mode != SELECT_MODE_TEST_ONLY) &&
-		    (cr_ptr->nodes[i].exclusive_cnt != 0)) {
-			/* already reserved by some exclusive job */
-			bit_clear(jobmap, i);
-			continue;
-		}
 		/* Marco: discard nodes where is not possible to steal more cpus */
-		//_filter_occupied_nodes();	
-		/* Marco: TODO: what about threads per core?  */
-		cpu_stealable = cpu_cnt * DLB_share_factor;
-		cpu_free = cpu_cnt;
-		int nprocs_on_node = 0;
-
-		job_iterator = list_iterator_create(job_list);
-		while ((job_rec_ptr = (struct job_record *) list_next(job_iterator)) && cpu_stealable > 0) {
-			if (!IS_JOB_RUNNING(job_rec_ptr)) {
-				continue;
+		/* Marco: TODO: what about ddthreads per core?  */
+		debug("run_job_cnt %d", run_job_cnt);
+		if(run_job_cnt == DROM_MALLEABILITY) {
+			debug("Filtering non malleable jobs in node %d", i);
+			if(_filter_malleable_node(job_ptr, i, cpu_cnt))
+				bit_clear(jobmap, i);
+			else {
+				bit_set(jobmap, i);
+				count++;
 			}
-			if(job_rec_ptr->node_bitmap && bit_test(job_rec_ptr->node_bitmap, i)) {
-				//TODO: fix this
-				cpu_requested = 0;
-				step_iterator = list_iterator_create(job_rec_ptr->step_list);
-				while ((step_ptr = (struct step_record *)
-                                   list_next (step_iterator))) {
-					if(!step_ptr->step_node_bitmap || step_ptr->batch_step || !bit_test(step_ptr->step_node_bitmap, i))
-						continue;
-//					cpu_count is the total amount among all nodes
-//					if(step_ptr->cpu_count dd!= 0)
-//						cpu_requested += step_ptr->cpu_count;
-					//TODO: should I save srun ntasks info in step_ptr?
-					if(step_ptr->cpus_per_task && job_rec_ptr->details->ntasks_per_node)
-						cpu_requested += step_ptr->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
-					//else
-					//	cpu_requested += step_ptr->cpus_per_task;
-				}
-                		list_iterator_destroy (step_iterator);
-				//debug("after analyzing steps, cpu_requested = %d",cpu_requested);
-				if(cpu_requested == 0) {
-					if(job_rec_ptr->details->cpus_per_task && job_rec_ptr->details->ntasks_per_node) {
-						cpu_requested = job_rec_ptr->details->cpus_per_task * job_rec_ptr->details->ntasks_per_node;
-					}
-					else if(job_rec_ptr->details->cpus_per_task) {
-						cpu_requested = job_rec_ptr->details->cpus_per_task;
-					}
-					else {
-						cpu_requested = 1;
-					}
-				}
-				int tpn = job_rec_ptr->details->ntasks_per_node == 0 ? 1 : job_rec_ptr->details->ntasks_per_node;
-				//debug("Job %d runs on node %d: %d req cpus, %d cpt, %d tasks ",
-				//	 job_rec_ptr->job_id, i, cpu_requested, job_rec_ptr->details->cpus_per_task, tpn);
-				//should I consider Jobs that start with reduced cpt
-				nprocs_on_node += tpn;
-				if (cpu_requested <= cpu_free) {
-                                        cpu_free -= cpu_requested;
-					if (nprocs_on_node > cpu_stealable)
-						cpu_stealable = cpu_cnt - nprocs_on_node;
-				}
-                                else { //steal was necessary
-                                        cpu_missing = cpu_requested - cpu_free;
-					while (cpu_missing > cpu_stealable)
-						cpu_missing -= tpn; 
-                                        assert((cpu_missing + cpu_free) >= tpn);    //if node was allocated for this job means
-										    //that we allocated at least the min 
-										    //number of cpus (ntasks_per_node)
-                                        cpu_stealable -= cpu_missing;
-                                        cpu_free = 0;
-                                }
-			}
-		}
-		list_iterator_destroy(job_iterator);
-		debug("Stealable cpus %d, free %d in node %d", cpu_stealable, cpu_free, i);
-		//TODO: fix default value for tpn
-		if((job_ptr->details->ntasks_per_node && (cpu_free + cpu_stealable < job_ptr->details->ntasks_per_node)) ||
-		   (cpu_free + cpu_stealable < 1)) {
-			bit_clear(jobmap, i);
-			debug("Job %d cannot be allocated on node %d for lack of stealable cpus", job_ptr->job_id, i);
 			continue;
 		}
+		/* Find a solution correct for this case: partition should be shared? */
+		else if ((mode != SELECT_MODE_TEST_ONLY) &&
+                    (cr_ptr->nodes[i].exclusive_cnt != 0)) {
+                        debug("already reserved by some exclusive job");
+                        /* already reserved by some exclusive job */
+                        bit_clear(jobmap, i);
+                        continue;
+                }
 
 		total_jobs = 0;
 		total_run_jobs = 0;
@@ -782,7 +807,7 @@ int cmp_jobs(const void *x, const void *y)
 static double evaluate_solution(job_unit_t **s2, int size)
 {
 	int i;
-	double value = 0;
+	double value = -1;
 	//int weight_sum;
 	for(i = 0; i < size; i++) {
 		value += s2[i]->slowdown * s2[i]->job_ptr->node_cnt;
@@ -799,7 +824,7 @@ static double evaluate_solution(job_unit_t **s2, int size)
 static job_unit_t * _create_job_unit(struct job_record *job_scan_ptr, 
 			 	     struct job_record *new_job_ptr)
 {
-	debug("In _create_job_unit");
+	//debug("In _create_job_unit");
 	time_t now = time(NULL);
 	slurm_ctl_conf_t *config = slurm_conf_lock();
 	float sharing_factor = config->sharing_factor;
@@ -823,14 +848,15 @@ static job_unit_t * _create_job_unit(struct job_record *job_scan_ptr,
 
 	/* We do not allow new job to exceed (time + time sharing) of the running job */
 	if (remaining_time_sharing < new_job_runtime_sharing) {
-		debug("Exceeding job %d allocation, remaining time too low or job too small", job_scan_ptr->job_id);
+		//debug2("Exceeding job %d allocation, remaining time too low or job too small", job_scan_ptr->job_id);
 		xfree(job_unit);
 		return NULL;
 	}
 	job_unit->job_ptr = job_scan_ptr;
-	job_unit->response_time = wait_time + elapsed_time + remaining_time_sharing;	
-	job_unit->slowdown = job_unit->response_time / (job_scan_ptr->original_time_limit * 60);
+	job_unit->response_time = wait_time + elapsed_time + remaining_time_sharing;
+	job_unit->slowdown = (double) job_unit->response_time / (job_scan_ptr->original_time_limit * 60);
 	job_unit->time_limit = (uint32_t)(remaining_time_sharing + elapsed_time) / 60;
+	debug("Job unit response time = %ld, slowdown prediction = %f, new time limit = %d, old time limit = %d", job_unit->response_time, job_unit->slowdown, job_unit->time_limit, job_scan_ptr->original_time_limit);
 	return job_unit;
 }
 
@@ -842,32 +868,32 @@ int _filter_job_pre_evaluation(struct job_record *job_scan_ptr, struct job_recor
                  */
 		//  !bit_super_set(job_scan_ptr->node_bitmap, Bitmap)){
 	    bit_overlap(job_scan_ptr->node_bitmap, bitmap) == 0) {
-           	debug("job skipped, not running or not compatible with job map");
+           	debug2("job %d skipped, not running or not compatible with job map", job_scan_ptr->job_id);
             	return 1;
        	}
 	if (job_scan_ptr->details && new_job->details &&
             (job_scan_ptr->details->contiguous !=
              new_job->details->contiguous)) {
-                debug("job skipped, not contiguous");
+                debug2("job %d skipped, not contiguous", job_scan_ptr->job_id);
 		return 1;
 	}
 	if (new_job->details->req_node_bitmap &&
             (!bit_super_set(new_job->details->req_node_bitmap,
                             job_scan_ptr->node_bitmap))) {
-                debug("job skipped, not superset of req mask");
+                debug2("job %d skipped, not superset of req mask", job_scan_ptr->job_id);
 		return 1;		
 	}
 	if (new_job->details->exc_node_bitmap &&
             (bit_overlap(new_job->details->exc_node_bitmap,
                          job_scan_ptr->node_bitmap) != 0)) {
-                debug("job skipped, excluded nodes");
+                debug2("job %d skipped, excluded nodes", job_scan_ptr->job_id);
         	/* TODO: In this case some nodes still could be shared */
                 return 1;
 	}
 	return 0;
 	
 }
-
+/* Return a list of possible candidates for stealing  */
 job_unit_t **filter_and_evaluate_jobs(struct job_record *job_ptr, int *njobs, bitstr_t *bitmap)
 {
 	ListIterator job_iterator;
@@ -880,25 +906,25 @@ job_unit_t **filter_and_evaluate_jobs(struct job_record *job_ptr, int *njobs, bi
 	debug("In filter_and_evaluate_jobs");
 
         while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
-		debug("new job, %d, %d", *njobs, job_scan_ptr->job_id);
+		//debug2("new job, %d, %d", *njobs, job_scan_ptr->job_id);
                 if (_filter_job_pre_evaluation(job_scan_ptr, job_ptr, bitmap)) {
 			(*njobs)--;
 			continue;
 		} 
 
                 if (!(useful_jobs[i] = _create_job_unit(job_scan_ptr, job_ptr))) {
-			debug("job skipped, job unit NULL");
+			debug2("job %d skipped, job unit NULL", job_scan_ptr->job_id);
 			(*njobs)--;
 			continue;
 		}
 		if (useful_jobs[i]->response_time == 0) {
-			debug("job skipped, resp time 0");
+			debug2("job %d skipped, resp time 0", job_scan_ptr->job_id);
                         (*njobs)--;
 			xfree( useful_jobs[i]);
                         continue;
                 }
 		if (useful_jobs[i]->slowdown > MAX_SLOWDOWN) {
-			debug("If job %d shares, it will exceed slowdown limit!", job_scan_ptr->job_id);
+			debug2("If job %d shares, it will exceed slowdown limit!", job_scan_ptr->job_id);
 			(*njobs)--;
 			xfree( useful_jobs[i]);
 			continue;
@@ -917,20 +943,20 @@ static double _pick_mates_recursive(job_unit_t **useful_jobs,
 				 job_unit_t **solution, job_unit_t **best_solution,
 				 int max_njobs, int max_level, int level, 
 				 bitstr_t *tmp_bitmap, bitstr_t *best_bitmap, bitstr_t *bitmap, 
-				 int *nmates, int exceed_alloc, int req_nodes)
+				 int *nmates, bool exceed_alloc, int req_nodes)
 {
-	int i,j;
+	int i, j, last, tmp_nodes;
 	double best = -1, evaluation;
 	bitstr_t *original_bitmap = bit_alloc(bit_size(bitmap));
 	if (level == max_level) {
-		debug("max level, map size %d", (bit_set_count(tmp_bitmap)));
+		debug2("max level, map size %d", (bit_set_count(tmp_bitmap)));
 		if (bit_set_count(tmp_bitmap) >= req_nodes)
 			return evaluate_solution(solution, level);
 		else 
 			return -1;
 	}
 	if(bit_set_count(tmp_bitmap) >= req_nodes) {
-		debug("reached req_nodes");
+		debug2("reached req_nodes");
 		return evaluate_solution(solution, level);
 	}
 	for (i = 0; i < max_njobs; i++) {
@@ -941,29 +967,51 @@ static double _pick_mates_recursive(job_unit_t **useful_jobs,
 		if (j < level && level != 0)
 			continue;
 
-		debug("job %d", useful_jobs[i]->job_ptr->job_id);
+		//debug3("job %d", useful_jobs[i]->job_ptr->job_id);
 		
+		tmp_nodes = bit_set_count(tmp_bitmap);
+		if ((tmp_nodes + useful_jobs[i]->job_ptr->node_cnt)  > req_nodes) {
+			if (!exceed_alloc)
+				continue;
+			bit_copybits(original_bitmap, tmp_bitmap);
+			j = bit_ffs(useful_jobs[i]->job_ptr->node_bitmap);
+                        last = bit_fls(useful_jobs[i]->job_ptr->node_bitmap);
+                        while(tmp_nodes < req_nodes && j <= last) {
+                                if(bit_test(useful_jobs[i]->job_ptr->node_bitmap, j) && !bit_test(tmp_bitmap, j) && bit_test(bitmap, j)) {
+                                        bit_set(tmp_bitmap, j);
+					tmp_nodes++;
+                                }
+                                j++;
+                        }
+                        debug("partially took job %d", useful_jobs[i]->job_ptr->job_id);
+                }
+		else {
+			bit_copybits(original_bitmap, tmp_bitmap);
+			bit_or(tmp_bitmap, useful_jobs[i]->job_ptr->node_bitmap);
+                	bit_and(tmp_bitmap, bitmap);
+		}
 		solution[level] = useful_jobs[i];
-		bit_copybits(original_bitmap, tmp_bitmap);
-		bit_or(tmp_bitmap, useful_jobs[i]->job_ptr->node_bitmap);
-                bit_and(tmp_bitmap, bitmap);
-		debug("took job, map size %d", (bit_set_count(tmp_bitmap)));
+		//debug3("took job, map size %d", (bit_set_count(tmp_bitmap)));
 		evaluation = _pick_mates_recursive(useful_jobs, solution, best_solution,
 						   max_njobs, max_level, level +1,
 						   tmp_bitmap, best_bitmap, bitmap,
 						   nmates, exceed_alloc, req_nodes);
-		debug("Got %f", evaluation);
+		debug3("Got %f", evaluation);
 		if (evaluation == -1)
 			goto backtrack_cont;
 		if (evaluation < best || best == -1) {
 			best = evaluation;
-                        debug("Found a better solution! %f", evaluation);
-			for (j = 0; j < i; j++)
+                        debug2("Got a better solution!");
+			for (j = 0; j < level+1; j++) {
                         	best_solution[j] = solution[j];
+				debug("%d", best_solution[j]->job_ptr->job_id);
+			}
                         bit_copybits(best_bitmap, tmp_bitmap);
-                        *nmates = i;
+			debug("size %d", bit_set_count(best_bitmap));
+		        *nmates = level+1;
                 }
 backtrack_cont:
+		solution[level] = NULL;
 		bit_copybits(tmp_bitmap, original_bitmap);
 	}
 	return best;
@@ -974,7 +1022,7 @@ backtrack_cont:
  * max_jobs: number of maximum jobs in the solution
  * njobs: number of jobs to consider when iterating in ordered job list
  */
-static job_unit_t **_find_mates_recursive(job_unit_t **useful_jobs, int max_jobs, int njobs, int req_nodes, bitstr_t *best_bitmap, bitstr_t * bitmap, bitstr_t *free_nodes_map, int *nmates, int exceed_alloc)
+static job_unit_t **_find_mates_recursive(job_unit_t **useful_jobs, int max_jobs, int njobs, int req_nodes, bitstr_t *best_bitmap, bitstr_t * bitmap, bitstr_t *free_nodes_map, int *nmates, bool exceed_alloc)
 {
 
 	job_unit_t **solution = xmalloc(sizeof(job_unit_t *) * max_jobs);
@@ -993,9 +1041,8 @@ static job_unit_t **_find_mates_recursive(job_unit_t **useful_jobs, int max_jobs
 				     njobs, max_jobs, 0, 
 				     tmp_bitmap, best_bitmap, bitmap,
 				     nmates, exceed_alloc, req_nodes);
-
-	bit_free(tmp_bitmap);	
-	return solution;
+	bit_free(tmp_bitmap);
+	return best_solution;
 }
 
 /* Iterative version */
@@ -1057,9 +1104,10 @@ static int _filter_jobs(struct job_record *job_ptr, bitstr_t *bitmap,
                           uint32_t req_nodes)
 {
 	int njobs, i, j;
-	bit_clear_all(bitmap);
 	job_unit_t **useful_jobs = filter_and_evaluate_jobs(job_ptr, &njobs, bitmap);
 	//filter jobs and return sum of remaining jobs bitmaps
+	//TODO: I'm not considering free nodes!
+	bit_clear_all(bitmap);
 	for(j = 0; j < njobs; j++) {
 		for(i = 0; i < bit_size(useful_jobs[j]->job_ptr->node_bitmap); i++) {
         		if (bit_test(useful_jobs[j]->job_ptr->node_bitmap, i)) {
@@ -1094,7 +1142,8 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		return rc;
 	}
 	qsort(useful_jobs, njobs, sizeof(job_unit_t *), cmp_jobs);
-	
+	for(i=0;i<njobs;i++)
+		debug("job slowdown: %f", useful_jobs[i]->slowdown);	
 //        current_bitmap = bit_alloc(bit_size(bitmap));
 	best_bitmap = bit_alloc(bit_size(bitmap));
 //        bit_clear_all(current_bitmap);
@@ -1118,17 +1167,22 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 			xfree(current_solution);
 	}
 */
-	best_solution = xmalloc(sizeof(job_unit_t *) * max_share);
-	best_solution = _find_mates_recursive(useful_jobs, max_share, njobs, req_nodes, best_bitmap, bitmap, NULL, &nmates, false);
-	if(best_solution != NULL) {
+        clock_t start = clock(), diff;
+	best_solution = _find_mates_recursive(useful_jobs, max_share, njobs, req_nodes, best_bitmap, bitmap, NULL, &nmates, true);
+	if(best_solution[0] != NULL) {
                 debug("Found mates!");
                 bit_and(bitmap, best_bitmap);
 		//update time limits
-		for (i = 0; i < nmates; i++)
+		for (i = 0; i < nmates; i++) {
+			debug("new time limit for job %d, slowdown %f", useful_jobs[i]->time_limit, useful_jobs[i]->slowdown);
 			useful_jobs[i]->job_ptr->time_limit = useful_jobs[i]->time_limit;
+		}
 		job_ptr->time_limit = job_ptr->time_limit / sharing_factor;
         	rc = SLURM_SUCCESS;
 	}
+	diff = clock() - start;
+        int msec = diff * 1000 / CLOCKS_PER_SEC;
+        debug("Time taken by _find_mates_recursive: %d s %d ms", msec/1000, msec%1000);
 
 //        bit_free(current_bitmap);
 	bit_free(best_bitmap);
@@ -1140,50 +1194,50 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	return rc;
 }
 
-///* _find_job_mate - does most of the real work for select_p_job_test(),
-// *	in trying to find a suitable job to mate this one with. This is
-// *	a pretty simple algorithm now, but could try to match the job
-// *	with multiple jobs that add up to the proper size or a single
-// *	job plus a few idle nodes. */
-//static int _find_job_mate(struct job_record *job_ptr, bitstr_t *bitmap,
-//			  uint32_t min_nodes, uint32_t max_nodes,
-//			  uint32_t req_nodes)
-//{
-//	ListIterator job_iterator;
-//	struct job_record *job_scan_ptr;
-//	int rc = EINVAL;
-//
-//	job_iterator = list_iterator_create(job_list);
-//	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
-//		if ((!IS_JOB_RUNNING(job_scan_ptr))			||
-//		    (job_scan_ptr->node_cnt   != req_nodes)		||
-//		    (job_scan_ptr->total_cpus <
-//		     job_ptr->details->min_cpus)			||
-//		    (!bit_super_set(job_scan_ptr->node_bitmap, bitmap)))
-//			continue;
-//		if (job_scan_ptr->details && job_ptr->details &&
-//		    (job_scan_ptr->details->contiguous !=
-//		     job_ptr->details->contiguous))
-//			continue;
-//
-//		if (job_ptr->details->req_node_bitmap &&
-//		    (!bit_super_set(job_ptr->details->req_node_bitmap,
-//				    job_scan_ptr->node_bitmap)))
-//			continue;	/* Required nodes missing from job */
-//
-//		if (job_ptr->details->exc_node_bitmap &&
-//		    (bit_overlap(job_ptr->details->exc_node_bitmap,
-//				 job_scan_ptr->node_bitmap) != 0))
-//			continue;	/* Excluded nodes in this job */
-//		
-//		bit_and(bitmap, job_scan_ptr->node_bitmap);
-//		job_ptr->total_cpus = job_scan_ptr->total_cpus;
-//		rc = SLURM_SUCCESS;
-//		break;
-//	}
-//	list_iterator_destroy(job_iterator);
-//	return rc;
-//}
+/* _find_job_mate - does most of the real work for select_p_job_test(),
+ *	in trying to find a suitable job to mate this one with. This is
+ *	a pretty simple algorithm now, but could try to match the job
+ *	with multiple jobs that add up to the proper size or a single
+ *	job plus a few idle nodes. */
+static int _find_job_mate(struct job_record *job_ptr, bitstr_t *bitmap,
+			  uint32_t min_nodes, uint32_t max_nodes,
+			  uint32_t req_nodes)
+{
+	ListIterator job_iterator;
+	struct job_record *job_scan_ptr;
+	int rc = EINVAL;
+
+	job_iterator = list_iterator_create(job_list);
+	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
+		if ((!IS_JOB_RUNNING(job_scan_ptr))			||
+		    (job_scan_ptr->node_cnt   != req_nodes)		||
+		    (job_scan_ptr->total_cpus <
+		     job_ptr->details->min_cpus)			||
+		    (!bit_super_set(job_scan_ptr->node_bitmap, bitmap)))
+			continue;
+		if (job_scan_ptr->details && job_ptr->details &&
+		    (job_scan_ptr->details->contiguous !=
+		     job_ptr->details->contiguous))
+			continue;
+
+		if (job_ptr->details->req_node_bitmap &&
+		    (!bit_super_set(job_ptr->details->req_node_bitmap,
+				    job_scan_ptr->node_bitmap)))
+			continue;	/* Required nodes missing from job */
+
+		if (job_ptr->details->exc_node_bitmap &&
+		    (bit_overlap(job_ptr->details->exc_node_bitmap,
+				 job_scan_ptr->node_bitmap) != 0))
+			continue;	/* Excluded nodes in this job */
+		
+		bit_and(bitmap, job_scan_ptr->node_bitmap);
+		job_ptr->total_cpus = job_scan_ptr->total_cpus;
+		rc = SLURM_SUCCESS;
+		break;
+	}
+	list_iterator_destroy(job_iterator);
+	return rc;
+}
 
 /* _job_test - does most of the real work for select_p_job_test(), which
  *	pretty much just handles load-leveling and max_share logic */
@@ -3649,7 +3703,38 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 	uint16_t pass_count = 0;
 
 	orig_map = bit_copy(bitmap);
+	/* malleability case */
+	if (max_share == DROM_MALLEABILITY) {
+		j = _job_count_bitmap(cr_ptr, job_ptr,
+                                      orig_map, bitmap,
+                                      0, 0,
+                                      SELECT_MODE_RUN_NOW);
+		
+		if (j < min_nodes)
+                        free_nodes_map = bit_copy(bitmap);
+		else {
+			rc = _job_test(job_ptr, bitmap, min_nodes, max_nodes,
+req_nodes);
+			debug("Found enough free nodes for job %d", job_ptr->job_id);
+			/* Enough nodes, no malleability is necessary, remove this
+			 * if we want to separate the two cases */
+			if (rc == SLURM_SUCCESS)
+				goto top;
+		
+		}
 
+		j = _job_count_bitmap(cr_ptr, job_ptr,
+                                      orig_map, bitmap,
+                                      DROM_MALLEABILITY,
+                                      NO_SHARE_LIMIT,
+                                      SELECT_MODE_RUN_NOW);
+		debug("usable nodes: %d", j);
+		rc = _find_job_mates(job_ptr, bitmap, 
+				     free_nodes_map, min_nodes,
+				     max_nodes, req_nodes);
+		goto top;
+	}
+	/* Marco: normal / oversubscription case */ 
 	for (max_run_job=0; ((max_run_job<max_share) && (rc != SLURM_SUCCESS));
 	     max_run_job++) {
 		bool last_iteration = (max_run_job == (max_share - 1));
@@ -3671,37 +3756,24 @@ static int _run_now(struct job_record *job_ptr, bitstr_t *bitmap,
 				xfree(node_list);
 			}
 #endif
-			debug("usable nodes: %d", j);
-			if (max_run_job == 0 && j < min_nodes)
-                                free_nodes_map = bit_copy(bitmap);
 			if ((j == prev_cnt) || (j < min_nodes))
 				continue;
 			prev_cnt = j;
 			if (max_run_job > 0) {
 				/* We need to share. Try to find
 				 * suitable job to share nodes with */
-				rc = _find_job_mates(job_ptr, bitmap, 
-                                                    free_nodes_map, min_nodes,
-                                                    max_nodes, req_nodes);
-                 /* TODO:Should I consider the application balanced? 
-                 * what if the application is a master - slave type, balanced is not the general case
-                 */
-//				rc = _find_job_mate(job_ptr, bitmap,
-//						    min_nodes,
-//						    max_nodes, req_nodes);
+//				rc = _find_job_mates(job_ptr, bitmap, 
+//                                                    free_nodes_map, min_nodes,
+//                                                    max_nodes, req_nodes);
+				rc = _find_job_mate(job_ptr, bitmap,
+						    min_nodes,
+						    max_nodes, req_nodes);
 				if (rc == SLURM_SUCCESS) {
-					debug("job %d found mates", job_ptr->job_id);
 					break;
 				}
 			}
-			/* We don't call job test if we didn't find mates */			
-			if(max_run_job == 0) {
-				debug("calling job_test");
-				rc = _job_test(job_ptr, bitmap, min_nodes, 
-					       max_nodes, req_nodes);
-				if(rc == SLURM_SUCCESS)
-					debug("_job_test returned SUCCESS");
-			}
+			rc = _job_test(job_ptr, bitmap, min_nodes, 
+				       max_nodes, req_nodes);
 		}
 	}
 
@@ -3810,26 +3882,51 @@ static int _will_run_test(struct job_record *job_ptr, bitstr_t *bitmap,
 	int i, max_run_jobs, rc = SLURM_ERROR;
 	time_t now = time(NULL);
 
-	max_run_jobs = MAX((max_share - 1), 1);	/* exclude this job */
 	orig_map = bit_copy(bitmap);
+
+	/* If called with malleability just check if enough nodes */	
+	if (max_share == DROM_MALLEABILITY) {
+		debug("trying with malleability, bitmap %d orig_map %d", bit_set_count(bitmap), bit_set_count(orig_map));
+        //	bit_copybits(bitmap, orig_map);
+      		/*TODO: we remove free nodes here!*/
+        	i = _job_count_bitmap(cr_ptr, job_ptr, orig_map, bitmap,
+                	              max_share, NO_SHARE_LIMIT,
+       	                	      SELECT_MODE_WILL_RUN);
+		debug("After _job_count_bitmap nodes are %d", i);
+        	i = _filter_jobs(job_ptr, bitmap,
+                                 min_nodes, max_nodes, req_nodes);
+		debug("After _filter_jobs nodes are %d", i);
+		if (i >= min_nodes) {
+        	//        rc = _job_test(job_ptr, bitmap, min_nodes, max_nodes,
+       	 	//  	                 req_nodes);
+       		//       if (rc == SLURM_SUCCESS) {
+	                  FREE_NULL_BITMAP(orig_map);
+	                  job_ptr->start_time = time(NULL);
+                	  return SLURM_SUCCESS;
+        	//        }
+        	}
+	        FREE_NULL_BITMAP(orig_map);
+		return SLURM_ERROR;
+	}
+
+	max_run_jobs = MAX((max_share - 1), 0);	/* exclude this job */
 
 	/* Try to run with currently available nodes */
 	i = _job_count_bitmap(cr_ptr, job_ptr, orig_map, bitmap,
 			      max_run_jobs, NO_SHARE_LIMIT,
 			      SELECT_MODE_WILL_RUN);
-	debug("After _job_count_bitmap nodes are %d", i);
-	i = _filter_jobs(job_ptr, bitmap,
-				 min_nodes, max_nodes, req_nodes);
-	debug("After _filter_jobs nodes are %d", i);
 	if (i >= min_nodes) {
 		rc = _job_test(job_ptr, bitmap, min_nodes, max_nodes,
 			       req_nodes);
 		if (rc == SLURM_SUCCESS) {
+			debug("Job test succeded! Backfilling the job");
 			FREE_NULL_BITMAP(orig_map);
 			job_ptr->start_time = time(NULL);
 			return SLURM_SUCCESS;
 		}
 	}
+
+	debug("Couldn't normal backfill job");
 	/* Job is still pending. Simulate termination of jobs one at a time
 	 * to determine when and where the job can start. */
 	exp_cr = _dup_cr(cr_ptr);
@@ -4107,8 +4204,12 @@ extern int select_p_job_test(struct job_record *job_ptr, bitstr_t *bitmap,
 			job_ptr->job_id, job_ptr->details->core_spec);
 		job_ptr->details->core_spec = (uint16_t) NO_VAL;
 	}
-
-	if (job_ptr->details->share_res)
+	/* check if malleable */
+	if (job_ptr->details->share_res == DROM_MALLEABILITY) {
+		debug("job is malleable, using malleability");
+		max_share = DROM_MALLEABILITY;
+	}
+	else if (job_ptr->details->share_res)
 		max_share = job_ptr->part_ptr->max_share & ~SHARED_FORCE;
 	else	/* ((shared == 0) || (shared == (uint16_t) NO_VAL)) */
 		max_share = 1;
