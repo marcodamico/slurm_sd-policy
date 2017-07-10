@@ -381,7 +381,7 @@ main (int argc, char *argv[])
 	}
 	else
 		n_cpus = ncpus; 
-	if (slurmd_extrae_trace_init(n_cpus) != SLURM_SUCCESS)
+	if (slurmd_extrae_trace_init(n_cpus, conf->hostname) != SLURM_SUCCESS)
                 debug("Error in slurmd_extrae_trace_init");
 
 	_spawn_registration_engine();

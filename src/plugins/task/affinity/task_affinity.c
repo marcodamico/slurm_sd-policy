@@ -53,7 +53,7 @@
 #include "src/common/read_config.h"
 #include <time.h> //for timing
 
-#include "DLB_interface.h"
+#include "dlb_drom.h"
 #define DROM_SYNC_WAIT_USECS 1000
 
 /* Enable purging of cpuset directories
@@ -97,8 +97,8 @@ extern int init (void)
 {
 	debug("%s loaded", plugin_name);
 	/* Marco D'Amico: Init DLB and structures */
-	DLB_Drom_Init();
-	ncpus = DLB_Drom_GetNumCpus();
+	DLB_DROM_Init();
+	DLB_DROM_GetNumCpus(&ncpus);
 	//DLB_Drom_Finalize();
 	return SLURM_SUCCESS;
 }
@@ -110,7 +110,7 @@ extern int init (void)
 extern int fini (void)
 {
 	debug("%s unloaded", plugin_name);
-	DLB_Drom_Finalize();
+	DLB_DROM_Finalize();
 	return SLURM_SUCCESS;
 }
 
@@ -572,7 +572,7 @@ extern int task_p_pre_launch (stepd_step_rec_t *job)
 		char **Drom_env = (char **) malloc(sizeof(char*));
 		*Drom_env = NULL;
 
-		if(DLB_Drom_PreInit(job->envtp->task_pid, &cur_mask, 1, &Drom_env)) {
+		if(DLB_DROM_PreInit(job->envtp->task_pid, &cur_mask, 1, &Drom_env)) {
 			debug("Error pre registering DROM mask");
 			rc = SLURM_ERROR;
 		}
@@ -647,7 +647,7 @@ extern int task_p_post_term (stepd_step_rec_t *job, stepd_step_task_info_t *task
 	}
 #endif
 	if(!job->batch &&
-		DLB_Drom_PostFinalize(job->envtp->task_pid, 0)) {
+		DLB_DROM_PostFinalize(job->envtp->task_pid, 0)) {
 		debug("Failure in DLB_Drom_PostFinalize");
 		return SLURM_ERROR;
 	}

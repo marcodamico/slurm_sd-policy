@@ -4,10 +4,13 @@
 #include <sys/time.h>
 #include <string.h>
 
+#include "slurm/slurm.h"
+
 #include "src/common/slurm_extrae.h"
 #include "src/common/list.h"
 #include "src/common/xmalloc.h"
 #include "src/common/node_conf.h"
+#include "src/common/read_config.h"
 #include "src/slurmctld/slurmctld.h"
 
 #define MAX_STR_LEN 80
@@ -58,6 +61,10 @@ int slurmctld_extrae_trace_init()
 		slurm_mutex_unlock(&extrae_lock);
 		return SLURM_SUCCESS;
 	}
+	
+	slurm_ctl_conf_t *conf = slurm_conf_lock();
+	first_job = conf->first_job_id;
+	slurm_conf_unlock(); 
 	
 	extrae_job_list = list_create(_destroy_extrae_job_t);
 	
@@ -126,7 +133,7 @@ int slurmctld_extrae_trace_fini(struct node_record *node_table, int node_record_
 {
 	struct timeval fini_time;
 	long elapsed;
-	int i, j, first;
+	int i, j, first, end;
 	ListIterator itr = NULL;
 	extrae_job_t *job_ptr = NULL;
 
@@ -155,16 +162,17 @@ int slurmctld_extrae_trace_fini(struct node_record *node_table, int node_record_
 	itr = list_iterator_create(extrae_job_list);	
 	while((job_ptr = list_next(itr))) {
 		//ntasks
-		first = 0;
+		first = 1;
 		fprintf(trace_fp, ":%d(", job_ptr->num_tasks);
-		for(i = 0; i < node_record_count; i++) {
+		end = bit_fls(job_ptr->node_bitmap);
+		for(i = bit_ffs(job_ptr->node_bitmap); i <= end; i++) {
 			if (!bit_test(job_ptr->node_bitmap, i))
                                         continue;
 			for(j = 0; j < job_ptr->ntasks_per_node; j++)
 				//threads for each task
-				if(!first) {
+				if(first) {
 					fprintf(trace_fp, "%d:%d", job_ptr->cpus_per_task, i + 1);
-					first = 1;
+					first = 0;
 				}
 				else
 					fprintf(trace_fp, ",%d:%d", job_ptr->cpus_per_task, i + 1);
@@ -199,8 +207,6 @@ void slurmctld_extrae_add_job_to_queue(struct job_record *job_ptr)
         gettimeofday(&fini_time, NULL);
 	extrae_job_t *new_job = xmalloc(sizeof(extrae_thread_t));
 	new_job->job_id = job_ptr->job_id;
-	if (first_job == -1)
-		first_job = job_ptr->job_id - 1;
 	new_job->arrival_time = (fini_time.tv_sec-init_time.tv_sec) * 1000000 + fini_time.tv_usec - init_time.tv_usec;
 	//job_ptr->node_bitmap	
 	list_append(extrae_job_list, new_job);
@@ -220,6 +226,7 @@ int slurmctld_extrae_start_job(struct job_record *job_ptr)
 {
 	struct timeval fini_time;
 	long elapsed;
+	int node_count;
 //	int i, first_cpu, node_count;
 	debug("In slurmctld_extrae_start_job");
 
@@ -234,8 +241,16 @@ int slurmctld_extrae_start_job(struct job_record *job_ptr)
 	job->num_tasks = job_ptr->details->num_tasks;
 	job->ntasks_per_node = job_ptr->details->ntasks_per_node;
 	job->node_bitmap = bit_copy(job_ptr->node_bitmap);
-
-//	node_count = bit_size(job->node_bitmap);
+	
+	/* I need tasks distribution infos: at least ntasks_per_node */
+	//TODO: manage those informations at job arrival
+	node_count = bit_set_count(job->node_bitmap);
+	if (job->num_tasks == 0 && job->ntasks_per_node != 0)
+		job->num_tasks = node_count * job->ntasks_per_node;
+	else if (job->num_tasks == 0 && job->ntasks_per_node == 0) //1 task per node
+		job->num_tasks = node_count;
+	if (job->ntasks_per_node == 0)
+		job->ntasks_per_node = node_count / job->num_tasks;
 //	debug("Node count %d ", node_count);
 //	for(i = 0; i < node_count; i++)
 //		if(bit_test(job->node_bitmap, i))
@@ -249,14 +264,19 @@ int slurmctld_extrae_start_job(struct job_record *job_ptr)
 
 /* SLURMD functions */
 
-int slurmd_extrae_trace_init(int ncpus)
+int slurmd_extrae_trace_init(int ncpus, char *node_name)
 {
         int i;
 	FILE *time_fp;
+	node_info_msg_t *node_info_ptr = NULL;
 	debug("In slurmd_extrae_trace_init");
 
 	if(trace_initialized)
 		return SLURM_SUCCESS;
+
+	slurm_ctl_conf_t *conf = slurm_conf_lock();
+        first_job = conf->first_job_id;
+        slurm_conf_unlock();
 
 //        gettimeofday(&init_time, NULL);
   	time_fp = fopen(time_file, "r");
@@ -269,6 +289,23 @@ int slurmd_extrae_trace_init(int ncpus)
         for(i = 0; i < n_cpus; i++) {
                 extrae_threads[i].job_id = -1;
 	}
+	if (slurm_load_node((time_t) NULL, &node_info_ptr, SHOW_ALL) ) {
+		debug("slurm_load_node error");
+		return SLURM_ERROR;
+	}
+	for (i = 0; i < node_info_ptr->record_count; i++)
+		if(strcmp(node_name, node_info_ptr->node_array[i].name) == 0)
+			node_id = i;
+	slurm_free_node_info_msg(node_info_ptr);
+	if (node_id == -1)
+		return SLURM_ERROR;
+	base_cpu_id = node_id * n_cpus;
+        sprintf(trace_body_with_id, "%s_%d",trace_body, node_id);
+        //create the file
+        body_fp = fopen(trace_body_with_id,"w");
+        if (body_fp == NULL)
+        	return SLURM_ERROR;
+
 	trace_initialized = 1;
         return SLURM_SUCCESS;
 }
@@ -337,7 +374,7 @@ static int _stop_thread(int cpu_id)
 //        }
         fprintf(body_fp, "%s\n", extrae_threads[cpu_id].entry);
 	extrae_threads[cpu_id].job_id = -1;
-//      fflush(trace_fp);
+	fflush(body_fp);
 //	fclose(trace_fp);
 
         slurm_mutex_unlock(&extrae_lock);
@@ -354,34 +391,15 @@ static int _print_extrae_threads()
 	return 0;
 }
 
-int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id, int nodeid)
+int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id)
 {
 	int app_id;
 	debug("In slurmd_extrae_start_thread\n");
-
 	if (slurmd_extrae_stop_thread(cpu_id) != SLURM_SUCCESS) {
 		debug("Error in slurmd_extrae_stop_thread");
 		return SLURM_ERROR;
 	}
 	
-	if (first_job == -1) {
-		first_job = job_id - 1;
-		if(base_cpu_id == -1) {
-			if (nodeid != -1) {
-				node_id = nodeid;
-				base_cpu_id = node_id * n_cpus;
-				sprintf(trace_body_with_id, "%s_%d",trace_body, node_id);
-				//create the file
-				body_fp = fopen(trace_body_with_id,"w");
-				if(body_fp == NULL)
-					return SLURM_ERROR;
-			}
-			else {
-				debug("Error: node id not provided!");
-				return SLURM_ERROR;
-			}
-		}
-	}
 	app_id = job_id - first_job;
 	_start_thread(cpu_id, app_id, task_id, th_id);
 	extrae_threads[cpu_id].job_id = job_id;
