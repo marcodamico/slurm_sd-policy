@@ -1308,9 +1308,19 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 			return error_code;
 		}
 	}
-
-	shared = _resolve_shared_status(job_ptr, part_ptr->max_share,
+	/*Marco: TODO: change this */
+	if (job_ptr->details->share_res == DROM_MALLEABILITY) {
+                debug("Malleability enabled for this job");
+                shared = DROM_MALLEABILITY;
+        }
+	else
+		shared = _resolve_shared_status(job_ptr, part_ptr->max_share,
 					cr_enabled);
+	if(shared > 1 && shared != DROM_MALLEABILITY) {	
+		debug("Disabling oversubscription for this job");
+		shared = 0;
+	}
+
 	if (cr_enabled)
 		job_ptr->cr_enabled = cr_enabled; /* CR enabled for this job */
 

@@ -215,6 +215,7 @@ static void _dump_node_space_table(node_space_map_t *node_space_ptr)
 
 static void _set_job_time_limit(struct job_record *job_ptr, uint32_t new_limit)
 {
+	debug("Changing time limit from %d to %d", job_ptr->time_limit, new_limit);
 	job_ptr->time_limit = new_limit;
 	/* reset flag if we have a NO_VAL time_limit */
 	if (job_ptr->time_limit == NO_VAL)
@@ -414,7 +415,7 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 			bit_fmt(str, (sizeof(str) - 1), exc_core_bitmap);
 			debug2(" _try_sched with exclude core bitmap: %s",str);
 		}
-
+		debug("try to sched on exclusive nodes");
 		rc = select_g_job_test(job_ptr, *avail_bitmap, min_nodes,
 				       max_nodes, req_nodes,
 				       SELECT_MODE_WILL_RUN,
@@ -424,7 +425,11 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 		FREE_NULL_LIST(preemptee_job_list);
 
 		job_ptr->details->share_res = orig_shared;
-
+		/*TODO: fix this */
+		job_ptr->details->share_res = DROM_MALLEABILITY;
+		
+		debug("try with malleability %d, original shared %d", job_ptr->details->share_res, orig_shared);
+		orig_shared = DROM_MALLEABILITY;
 		if (((rc != SLURM_SUCCESS) || (job_ptr->start_time > now)) &&
 		    (orig_shared != 0)) {
 			FREE_NULL_BITMAP(*avail_bitmap);

@@ -6930,6 +6930,9 @@ _copy_job_desc_to_job_record(job_desc_msg_t * job_desc,
 		detail_ptr->share_res  = (uint8_t) NO_VAL;
 		detail_ptr->whole_node = 0;
 	}
+	//if(job_ptr->is_malleable && DROM_MALLEABILITY)
+	detail_ptr->share_res = DROM_MALLEABILITY;
+		
 	if (job_desc->contiguous != (uint16_t) NO_VAL)
 		detail_ptr->contiguous = job_desc->contiguous;
 	if (slurm_get_use_spec_resources())
