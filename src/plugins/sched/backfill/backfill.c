@@ -114,6 +114,8 @@ typedef struct node_space_map {
 extern diag_stats_t slurmctld_diag_stats;
 uint32_t bf_sleep_usec = 0;
 
+uint32_t malleable_backfilled =0;
+
 /*********************** local variables *********************/
 static bool stop_backfill = false;
 static pthread_mutex_t thread_flag_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -425,11 +427,7 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 		FREE_NULL_LIST(preemptee_job_list);
 
 		job_ptr->details->share_res = orig_shared;
-		/*TODO: fix this */
-		job_ptr->details->share_res = DROM_MALLEABILITY;
 		
-		debug("try with malleability %d, original shared %d", job_ptr->details->share_res, orig_shared);
-		orig_shared = DROM_MALLEABILITY;
 		if (((rc != SLURM_SUCCESS) || (job_ptr->start_time > now)) &&
 		    (orig_shared != 0)) {
 			FREE_NULL_BITMAP(*avail_bitmap);
@@ -441,6 +439,8 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 					       &preemptee_job_list,
 					       exc_core_bitmap);
 			FREE_NULL_LIST(preemptee_job_list);
+			if (rc == SLURM_SUCCESS)
+				malleable_backfilled++;
 		} else
 			FREE_NULL_BITMAP(tmp_bitmap);
 	}
@@ -1721,6 +1721,8 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 		if (debug_flags & DEBUG_FLAG_BACKFILL) {
 			info("backfill: Jobs backfilled since boot: %u",
 			     slurmctld_diag_stats.backfilled_jobs);
+			info("backfill: Jobs malleable backfilled since boot: %u",
+			     malleable_backfilled);
 		}
 	} else if ((job_ptr->job_id != fail_jobid) &&
 		   (rc != ESLURM_ACCOUNTING_POLICY)) {
