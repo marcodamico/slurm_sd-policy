@@ -84,7 +84,7 @@
 #define RUN_JOB_INCR	16
 #define SELECT_DEBUG	0
 
-float MAX_SLOWDOWN = 3.0f;
+float MAX_SLOWDOWN = 2.0f;
 int MIX_WITH_FREE = 1;
 
 typedef struct job_unit {
@@ -686,9 +686,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 	if (i_first == -1)	/* job has no nodes */
 		i_last = -2;
 	for (i = i_first; i <= i_last; i++) {
-		debug("node %d", i);
 		if (!bit_test(bitmap, i)) {
-			debug("node %d not set", i);
 			bit_clear(jobmap, i);
 			continue;
 		}
@@ -746,15 +744,13 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 			}
 			avail_mem -= node_ptr->mem_spec_limit;
 			if ((alloc_mem + job_mem) > avail_mem) {
-				debug("qualcosa di memoria");
 				bit_clear(jobmap, i);
 				continue;
 			}
 		}
 
 		/* Marco: discard nodes where is not possible to steal more cpus */
-		/* Marco: TODO: what about ddthreads per core?  */
-		debug("run_job_cnt %d", run_job_cnt);
+		/* Marco: TODO: what about threads per core?  */
 		if(run_job_cnt == DROM_MALLEABILITY) {
 			debug("Filtering non malleable jobs in node %d", i);
 			if(_filter_malleable_node(job_ptr, i, cpu_cnt))
@@ -1168,14 +1164,22 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	}
 */
         clock_t start = clock(), diff;
-	best_solution = _find_mates_recursive(useful_jobs, max_share, njobs, req_nodes, best_bitmap, bitmap, NULL, &nmates, true);
+	best_solution = _find_mates_recursive(useful_jobs, max_share, njobs, req_nodes, best_bitmap, bitmap, NULL, &nmates, false);
 	if(best_solution[0] != NULL) {
                 debug("Found mates!");
                 bit_and(bitmap, best_bitmap);
 		//update time limits
+		job_ptr->mates_list = list_create(NULL);
 		for (i = 0; i < nmates; i++) {
 			debug("new time limit for job %d, slowdown %f", useful_jobs[i]->time_limit, useful_jobs[i]->slowdown);
-			useful_jobs[i]->job_ptr->time_limit = useful_jobs[i]->time_limit;
+			best_solution[i]->job_ptr->time_limit = best_solution[i]->time_limit;
+			list_append(job_ptr->mates_list, &best_solution[i]->job_ptr->job_id);
+		}
+		debug("picked mates list:");
+		for (i = 0; i < nmates; i++) {
+                        debug("job %d, sd prediction %f, nodes %d", 
+			      best_solution[i]->job_ptr->job_id, best_solution[i]->slowdown, 
+			      best_solution[i]->job_ptr->node_cnt);
 		}
 		job_ptr->time_limit = job_ptr->time_limit / sharing_factor;
         	rc = SLURM_SUCCESS;
@@ -1183,6 +1187,8 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	diff = clock() - start;
         int msec = diff * 1000 / CLOCKS_PER_SEC;
         debug("Time taken by _find_mates_recursive: %d s %d ms", msec/1000, msec%1000);
+
+	job_ptr->mates_list = list_create(NULL);
 
 //        bit_free(current_bitmap);
 	bit_free(best_bitmap);
