@@ -26,11 +26,11 @@ char *trace_body_slurmctld = "slurm_workload_body_slurmctld";
 char trace_body_with_id[MAX_STR_LEN+1];
 char *time_file = "slurm_extrae_init_time";
 int first_job = -1;
-FILE *body_fp;
+FILE *body_fp = NULL;
 /* SLURMCTLD variables */
 char *trace_prv = "slurm_workload_trace.prv";
 List extrae_job_list = NULL;
-FILE *trace_fp;
+FILE *trace_fp = NULL;
 
 /* SLURMD variables */
 int n_cpus = 0;
@@ -284,6 +284,11 @@ int slurmd_extrae_trace_init(int ncpus, char *node_name)
                 return SLURM_ERROR;
 	fread(&init_time, sizeof(init_time), 1, time_fp);
  	fclose(time_fp);
+	if (!ncpus) {
+		debug("Number of CPUs not defined");
+		return SLURM_ERROR;
+	}
+	else debug("Number of CPUs: %d", ncpus);
 	n_cpus = ncpus;
 	extrae_threads = xmalloc(sizeof(extrae_thread_t) * n_cpus);
         for(i = 0; i < n_cpus; i++) {
