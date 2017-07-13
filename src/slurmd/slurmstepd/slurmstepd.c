@@ -168,6 +168,7 @@ main (int argc, char *argv[])
 
 ending:
 	mpi_fini();	/* Remove stale PMI2 sockets */
+	slurmd_task_fini();
 #ifdef MEMORY_LEAK_DEBUG
 	acct_gather_conf_destroy();
 	(void) core_spec_g_fini();
