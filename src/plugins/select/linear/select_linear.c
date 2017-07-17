@@ -1025,7 +1025,7 @@ static job_unit_t **_find_mates_recursive(job_unit_t **useful_jobs, int max_jobs
         job_unit_t **best_solution = xmalloc(sizeof(job_unit_t *) * max_jobs);
         int i;
 	bitstr_t *tmp_bitmap = bit_alloc(bit_size(bitmap));
-	
+		
         debug("In _find_mates");
 
         if (free_nodes_map != NULL) {
@@ -1131,13 +1131,15 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	float sharing_factor = config->sharing_factor;
 	slurm_conf_unlock();
 	/* This is the initial solution */
+	debug("bitmap before filter_and_evaluate_jobs: %s", bit_fmt_hexmask(bitmap));
 	useful_jobs = filter_and_evaluate_jobs(job_ptr, &njobs, bitmap);
+	debug("bitmap after filter_and_evaluate_jobs: %s", bit_fmt_hexmask(bitmap));
 	debug("Got %d jobs, sorting...", njobs);
 	if (njobs == 0) {
 		debug("No mates avaiable");
 		return rc;
 	}
-	qsort(useful_jobs, njobs, sizeof(job_unit_t *), cmp_jobs);
+	qsort(useful_jobs, njobs, sizeof(job_unit_t), cmp_jobs);
 	for(i=0;i<njobs;i++)
 		debug("job slowdown: %f", useful_jobs[i]->slowdown);	
 //        current_bitmap = bit_alloc(bit_size(bitmap));
@@ -1167,19 +1169,20 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	best_solution = _find_mates_recursive(useful_jobs, max_share, njobs, req_nodes, best_bitmap, bitmap, NULL, &nmates, false);
 	if(best_solution[0] != NULL) {
                 debug("Found mates!");
+		/*TODO: why not bit_copy*/
                 bit_and(bitmap, best_bitmap);
+		debug("bitmap solution: %s", bit_fmt_hexmask(bitmap));
 		//update time limits
 		job_ptr->mates_list = list_create(NULL);
 		for (i = 0; i < nmates; i++) {
-			debug("new time limit for job %d, slowdown %f", useful_jobs[i]->time_limit, useful_jobs[i]->slowdown);
 			best_solution[i]->job_ptr->time_limit = best_solution[i]->time_limit;
 			list_append(job_ptr->mates_list, &best_solution[i]->job_ptr->job_id);
 		}
 		debug("picked mates list:");
 		for (i = 0; i < nmates; i++) {
-                        debug("job %d, sd prediction %f, nodes %d", 
+                        debug("job %d, sd prediction %f, nodes %d, new time limit %d", 
 			      best_solution[i]->job_ptr->job_id, best_solution[i]->slowdown, 
-			      best_solution[i]->job_ptr->node_cnt);
+			      best_solution[i]->job_ptr->node_cnt, best_solution[i]->time_limit);
 		}
 		job_ptr->time_limit = job_ptr->time_limit / sharing_factor;
         	rc = SLURM_SUCCESS;
@@ -3726,7 +3729,7 @@ req_nodes);
 				goto top;
 		
 		}
-		bitmap = bit_copy(orig_map);
+		bit_copybits(bitmap, orig_map);
 		j = _job_count_bitmap(cr_ptr, job_ptr,
                                       orig_map, bitmap,
                                       DROM_MALLEABILITY,
@@ -3736,6 +3739,8 @@ req_nodes);
 		rc = _find_job_mates(job_ptr, bitmap, 
 				     free_nodes_map, min_nodes,
 				     max_nodes, req_nodes);
+//		rc = _job_test(job_ptr, bitmap, min_nodes,
+//                                       max_nodes, req_nodes);
 		goto top;
 	}
 	/* Marco: normal / oversubscription case */ 
