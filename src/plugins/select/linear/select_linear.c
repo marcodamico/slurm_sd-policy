@@ -844,7 +844,7 @@ static job_unit_t * _create_job_unit(struct job_record *job_scan_ptr,
 
 	/* We do not allow new job to exceed (time + time sharing) of the running job */
 	if (remaining_time_sharing < new_job_runtime_sharing) {
-		//debug2("Exceeding job %d allocation, remaining time too low or job too small", job_scan_ptr->job_id);
+		debug2("Exceeding job %d allocation, remaining time too low or job too small", job_scan_ptr->job_id);
 		xfree(job_unit);
 		return NULL;
 	}
@@ -3728,13 +3728,13 @@ req_nodes);
 				goto top;
 		
 		}
-
+		bitmap = bit_copy(orig_map);
 		j = _job_count_bitmap(cr_ptr, job_ptr,
                                       orig_map, bitmap,
                                       DROM_MALLEABILITY,
                                       NO_SHARE_LIMIT,
                                       SELECT_MODE_RUN_NOW);
-		debug("usable nodes: %d", j);
+		debug("usable nodes for malleable scheduling: %d", j);
 		rc = _find_job_mates(job_ptr, bitmap, 
 				     free_nodes_map, min_nodes,
 				     max_nodes, req_nodes);
