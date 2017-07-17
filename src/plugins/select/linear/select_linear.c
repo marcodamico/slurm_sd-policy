@@ -1188,8 +1188,6 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
         int msec = diff * 1000 / CLOCKS_PER_SEC;
         debug("Time taken by _find_mates_recursive: %d s %d ms", msec/1000, msec%1000);
 
-	job_ptr->mates_list = list_create(NULL);
-
 //        bit_free(current_bitmap);
 	bit_free(best_bitmap);
         for (i = 0; i < njobs; i++)
