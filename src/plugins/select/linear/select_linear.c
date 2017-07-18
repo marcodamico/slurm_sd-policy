@@ -793,7 +793,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 
 int cmp_jobs(const void *x, const void *y)
 {
-        job_unit_t *xx = (job_unit_t *)x, *yy = (job_unit_t *)y;
+        job_unit_t *xx = *(job_unit_t **)x, *yy = *(job_unit_t **)y;
         if (xx->slowdown < yy->slowdown) return -1;
         if (xx->slowdown > yy->slowdown) return  1;
         return 0;
@@ -1139,7 +1139,7 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		debug("No mates avaiable");
 		return rc;
 	}
-	qsort(useful_jobs, njobs, sizeof(job_unit_t), cmp_jobs);
+	qsort(useful_jobs, njobs, sizeof(job_unit_t *), cmp_jobs);
 	for(i=0;i<njobs;i++)
 		debug("job slowdown: %f", useful_jobs[i]->slowdown);	
 //        current_bitmap = bit_alloc(bit_size(bitmap));
@@ -3893,7 +3893,7 @@ static int _will_run_test(struct job_record *job_ptr, bitstr_t *bitmap,
 
 	orig_map = bit_copy(bitmap);
 
-	/* If called with malleability just check if enough nodes */	
+	/* If called with malleability just check if enough nodes */
 	if (max_share == DROM_MALLEABILITY) {
 		debug("trying with malleability, bitmap %d orig_map %d", bit_set_count(bitmap), bit_set_count(orig_map));
         //	bit_copybits(bitmap, orig_map);
