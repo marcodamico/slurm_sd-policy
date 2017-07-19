@@ -840,25 +840,37 @@ static job_unit_t * _create_job_unit(struct job_record *job_scan_ptr,
 	}
 	new_job_runtime = new_job_ptr->time_limit * 60;
 	new_job_runtime_sharing = new_job_runtime / sharing_factor;
-	remaining_time_sharing = (remaining_time - new_job_runtime_sharing) + new_job_runtime_sharing / (1 - sharing_factor);
+	remaining_time_sharing = remaining_time / (1 - sharing_factor);
 
 	/* We do not allow new job to exceed (time + time sharing) of the running job */
 	if (remaining_time_sharing < new_job_runtime_sharing) {
-		debug2("Exceeding job %d allocation, remaining time too low or job too small", job_scan_ptr->job_id);
+		debug2("Exceeding job %d allocation, remaining time too low or job too small (%ld)",
+			job_scan_ptr->job_id, remaining_time_sharing);
 		xfree(job_unit);
 		return NULL;
 	}
+
 	job_unit->job_ptr = job_scan_ptr;
-	job_unit->response_time = wait_time + elapsed_time + remaining_time_sharing;
+/*	job_unit->response_time = wait_time + elapsed_time + remaining_time_sharing;
 	job_unit->slowdown = (double) job_unit->response_time / (job_scan_ptr->original_time_limit * 60);
 	job_unit->time_limit = (uint32_t)(remaining_time_sharing + elapsed_time) / 60;
-	debug("Job unit response time = %ld, slowdown prediction = %f, new time limit = %d, old time limit = %d", job_unit->response_time, job_unit->slowdown, job_unit->time_limit, job_scan_ptr->original_time_limit);
+*/
+	job_unit->time_limit = job_scan_ptr->time_limit + new_job_ptr->time_limit;
+	/* TODO: resptime truncated or change to double? */
+	job_unit->response_time = (wait_time + 30) / 60 + job_unit->time_limit;
+	job_unit->slowdown = (double) (wait_time / 60.0f + job_unit->time_limit) / job_scan_ptr->original_time_limit; 	
+	
+	debug("Job %d response time = %ld, slowdown prediction = %f,"
+	      "new time limit = %d, original time limit = %d",
+	       job_scan_ptr->job_id, job_unit->response_time, job_unit->slowdown,
+	       job_unit->time_limit, job_scan_ptr->original_time_limit);
+	
 	return job_unit;
 }
 
 int _filter_job_pre_evaluation(struct job_record *job_scan_ptr, struct job_record *new_job, bitstr_t *bitmap)
 {
-	if (!IS_JOB_RUNNING(job_scan_ptr) ||
+	if ((!IS_JOB_RUNNING(job_scan_ptr) && !IS_JOB_CONFIGURING(job_scan_ptr)) || 
                 /* If not a super set means the job has been discarded
                  * by _job_count_bitmap, i.e. no cpus to steal
                  */
@@ -1187,6 +1199,8 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		job_ptr->time_limit = job_ptr->time_limit / sharing_factor;
         	rc = SLURM_SUCCESS;
 	}
+	else
+		bit_clear_all(bitmap);
 	diff = clock() - start;
         int msec = diff * 1000 / CLOCKS_PER_SEC;
         debug("Time taken by _find_mates_recursive: %d s %d ms", msec/1000, msec%1000);
@@ -3662,9 +3676,14 @@ static int _test_only(struct job_record *job_ptr, bitstr_t *bitmap,
 	orig_map = bit_copy(bitmap);
 
 	/* Try to run with currently available nodes */
-	i = _job_count_bitmap(cr_ptr, job_ptr, orig_map, bitmap,
-			      NO_SHARE_LIMIT, NO_SHARE_LIMIT,
-			      SELECT_MODE_TEST_ONLY);
+	if (max_share == DROM_MALLEABILITY)
+		i = _job_count_bitmap(cr_ptr, job_ptr, orig_map, bitmap,
+                                      DROM_MALLEABILITY, NO_SHARE_LIMIT,
+                                      SELECT_MODE_TEST_ONLY);
+	else
+		i = _job_count_bitmap(cr_ptr, job_ptr, orig_map, bitmap,
+				      NO_SHARE_LIMIT, NO_SHARE_LIMIT,
+				      SELECT_MODE_TEST_ONLY);
 	if (i >= min_nodes) {
 		save_mem = job_ptr->details->pn_min_memory;
 		job_ptr->details->pn_min_memory = 0;
@@ -4224,15 +4243,18 @@ extern int select_p_job_test(struct job_record *job_ptr, bitstr_t *bitmap,
 		max_share = 1;
 
 	if (mode == SELECT_MODE_WILL_RUN) {
+		debug("will run");
 		rc = _will_run_test(job_ptr, bitmap, min_nodes, max_nodes,
 				    max_share, req_nodes,
 				    preemptee_candidates, preemptee_job_list);
 		if (!job_ptr->best_switch)
 			rc = SLURM_ERROR;
 	} else if (mode == SELECT_MODE_TEST_ONLY) {
+		debug("test_only");
 		rc = _test_only(job_ptr, bitmap, min_nodes, max_nodes,
 				req_nodes, max_share);
 	} else if (mode == SELECT_MODE_RUN_NOW) {
+		debug("run now");
 		rc = _run_now(job_ptr, bitmap, min_nodes, max_nodes,
 			      max_share, req_nodes,
 			      preemptee_candidates, preemptee_job_list);

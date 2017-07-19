@@ -439,8 +439,6 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 					       &preemptee_job_list,
 					       exc_core_bitmap);
 			FREE_NULL_LIST(preemptee_job_list);
-			if (rc == SLURM_SUCCESS)
-				malleable_backfilled++;
 		} else
 			FREE_NULL_BITMAP(tmp_bitmap);
 	}
@@ -1423,6 +1421,9 @@ next_task:
 			if (bb == -1)
 				continue;
 		} else if (job_ptr->start_time <= now) { /* Can start now */
+			/* Marco: I need to edit original time limit because it can delete
+			 * calculted value in select plugin */
+			orig_time_limit = job_ptr->time_limit;
 			uint32_t save_time_limit = job_ptr->time_limit;
 			uint32_t hard_limit;
 			bool reset_time = false;
@@ -1718,12 +1719,17 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 			launch_job(job_ptr);
 		slurmctld_diag_stats.backfilled_jobs++;
 		slurmctld_diag_stats.last_backfilled_jobs++;
+		if (job_ptr->mates_list != NULL)
+			malleable_backfilled++;
 		if (debug_flags & DEBUG_FLAG_BACKFILL) {
 			info("backfill: Jobs backfilled since boot: %u",
 			     slurmctld_diag_stats.backfilled_jobs);
 			info("backfill: Jobs malleable backfilled since boot: %u",
 			     malleable_backfilled);
 		}
+//	} else if (rc == EINVAL) {
+//		debug("backfill: Failed to start JobId=%u, no suitable mates",
+//		      job_ptr->job_id);
 	} else if ((job_ptr->job_id != fail_jobid) &&
 		   (rc != ESLURM_ACCOUNTING_POLICY)) {
 		char *node_list;
