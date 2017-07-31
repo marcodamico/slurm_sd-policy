@@ -1,3 +1,3 @@
 # Makefile for task plugins
 
-SUBDIRS = affinity affinity_drom none cgroup cray
+SUBDIRS = affinity none cgroup cray
