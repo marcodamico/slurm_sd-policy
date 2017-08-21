@@ -114,8 +114,6 @@ typedef struct node_space_map {
 extern diag_stats_t slurmctld_diag_stats;
 uint32_t bf_sleep_usec = 0;
 
-uint32_t malleable_backfilled =0;
-
 /*********************** local variables *********************/
 static bool stop_backfill = false;
 static pthread_mutex_t thread_flag_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -1421,13 +1419,17 @@ next_task:
 			if (bb == -1)
 				continue;
 		} else if (job_ptr->start_time <= now) { /* Can start now */
-			/* Marco: I need to edit original time limit because it can delete
-			 * calculted value in select plugin */
-			orig_time_limit = job_ptr->time_limit;
 			uint32_t save_time_limit = job_ptr->time_limit;
 			uint32_t hard_limit;
 			bool reset_time = false;
 			int rc = _start_job(job_ptr, resv_bitmap);
+			/* Marco: I might have alterd time limit because of 
+			 * malleability */
+                        if (rc == SLURM_SUCCESS) {
+				/* Respect partition */
+				comp_time_limit = MIN(job_ptr->time_limit,
+                                                 part_time_limit);
+			}
 			if (qos_ptr && (qos_ptr->flags & QOS_FLAG_NO_RESERVE)) {
 				if (orig_time_limit == NO_VAL) {
 					acct_policy_alter_job(
@@ -1450,8 +1452,12 @@ next_task:
 				job_ptr->time_limit = comp_time_limit;
 				job_ptr->limit_set.time = 1;
 			} else {
-				acct_policy_alter_job(job_ptr, orig_time_limit);
-				_set_job_time_limit(job_ptr, orig_time_limit);
+				/* Marco: I might have alterd time limit because of 
+                         	 * malleability */
+				if (!job_ptr->mates_list) {//we don't share nodes
+					acct_policy_alter_job(job_ptr, orig_time_limit);
+					_set_job_time_limit(job_ptr, orig_time_limit);
+				}
 			}
 			/* Only set end_time if start_time is set,
 			 * or else end_time will be small (ie. 1969). */
@@ -1720,12 +1726,12 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 		slurmctld_diag_stats.backfilled_jobs++;
 		slurmctld_diag_stats.last_backfilled_jobs++;
 		if (job_ptr->mates_list != NULL)
-			malleable_backfilled++;
+			slurmctld_diag_stats.malleable_backfilled++;
 		if (debug_flags & DEBUG_FLAG_BACKFILL) {
 			info("backfill: Jobs backfilled since boot: %u",
 			     slurmctld_diag_stats.backfilled_jobs);
 			info("backfill: Jobs malleable backfilled since boot: %u",
-			     malleable_backfilled);
+			     slurmctld_diag_stats.malleable_backfilled);
 		}
 //	} else if (rc == EINVAL) {
 //		debug("backfill: Failed to start JobId=%u, no suitable mates",
