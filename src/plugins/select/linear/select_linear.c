@@ -856,7 +856,6 @@ static job_unit_t * _create_job_unit(struct job_record *job_scan_ptr,
 	job_unit->time_limit = (uint32_t)(remaining_time_sharing + elapsed_time) / 60;
 */
 	job_unit->time_limit = job_scan_ptr->time_limit + new_job_ptr->time_limit;
-	/* TODO: resptime truncated or change to double? */
 	job_unit->response_time = (wait_time + 30) / 60 + job_unit->time_limit;
 	job_unit->slowdown = (double) (wait_time / 60.0f + job_unit->time_limit) / job_scan_ptr->original_time_limit; 	
 	
@@ -1185,7 +1184,6 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
                 bit_and(bitmap, best_bitmap);
 		debug("bitmap solution: %s", bit_fmt_hexmask(bitmap));
 		//update time limits
-		job_ptr->mates_list = list_create(NULL);
 		for (i = 0; i < nmates; i++) {
 			best_solution[i]->job_ptr->time_limit = best_solution[i]->time_limit;
 			list_append(job_ptr->mates_list, &best_solution[i]->job_ptr->job_id);
