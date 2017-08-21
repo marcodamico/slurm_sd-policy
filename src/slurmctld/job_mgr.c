@@ -169,6 +169,7 @@ static struct job_record *_create_job_record(int *error_code,
 					     uint32_t num_jobs);
 static void _del_batch_list_rec(void *x);
 static void _delete_job_desc_files(uint32_t job_id);
+static void _destroy_uint32_ptr(void *object);
 static slurmdb_qos_rec_t *_determine_and_validate_qos(
 	char *resv_name, slurmdb_assoc_rec_t *assoc_ptr,
 	bool admin, slurmdb_qos_rec_t *qos_rec,	int *error_code, bool locked);
@@ -520,6 +521,12 @@ void delete_job_details(struct job_record *job_entry)
 	xfree(job_entry->details->restart_dir);
 	xfree(job_entry->details->work_dir);
 	xfree(job_entry->details);	/* Must be last */
+}
+
+static void _destroy_uint32_ptr(void *object)
+{
+	uint32_t *tmp = (uint32_t *)object;
+	xfree(tmp);
 }
 
 /* _delete_job_desc_files - delete job descriptor related files */
@@ -5945,6 +5952,9 @@ static int _job_create(job_desc_msg_t *job_desc, int allocate, int will_run,
 	}
 	job_ptr->best_switch = true;
 
+	/* Init mates list */
+	job_ptr->mates_list = list_create(_destroy_uint32_ptr);
+
 	FREE_NULL_LIST(license_list);
 	FREE_NULL_LIST(gres_list);
 	FREE_NULL_BITMAP(req_bitmap);
@@ -7772,6 +7782,8 @@ static void _list_delete_job(void *job_entry)
 		job_count -= job_array_size;
 	}
 	job_ptr->job_id = 0;
+	/* free mates list */
+	FREE_NULL_LIST(job_ptr->mates_list);
 	xfree(job_ptr);
 }
 
