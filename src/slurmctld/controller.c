@@ -1709,7 +1709,7 @@ static void *_slurmctld_background(void *no_data)
         	job_iterator = list_iterator_create(job_list);
         	while ((job_ptr = list_next(job_iterator))) {
                 	if ((IS_JOB_PENDING(job_ptr)) ) {
-                        	wait_time_acc += job_ptr->start_time - job_ptr->submit_time;
+                        	wait_time_acc += job_ptr->start_time - job_ptr->details->submit_time;
         			job_count++;
 			}
 		}
