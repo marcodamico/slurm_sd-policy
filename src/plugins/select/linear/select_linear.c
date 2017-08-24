@@ -751,9 +751,9 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 
 		/* Marco: discard nodes where is not possible to steal more cpus */
 		/* Marco: TODO: what about threads per core?  */
-		if(run_job_cnt == DROM_MALLEABILITY) {
+		if (run_job_cnt == DROM_MALLEABILITY) {
 			debug("Filtering non malleable jobs in node %d", i);
-			if(_filter_malleable_node(job_ptr, i, cpu_cnt))
+			if (_filter_malleable_node(job_ptr, i, cpu_cnt))
 				bit_clear(jobmap, i);
 			else {
 				bit_set(jobmap, i);
@@ -3935,7 +3935,7 @@ static int _will_run_test(struct job_record *job_ptr, bitstr_t *bitmap,
 		return SLURM_ERROR;
 	}
 
-	max_run_jobs = MAX((max_share - 1), 0);	/* exclude this job */
+	max_run_jobs = MAX((max_share - 1), 1);	/* exclude this job */
 
 	/* Try to run with currently available nodes */
 	i = _job_count_bitmap(cr_ptr, job_ptr, orig_map, bitmap,

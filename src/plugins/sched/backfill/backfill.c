@@ -1725,7 +1725,7 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 			launch_job(job_ptr);
 		slurmctld_diag_stats.backfilled_jobs++;
 		slurmctld_diag_stats.last_backfilled_jobs++;
-		if (job_ptr->mates_list != NULL)
+		if (list_count(job_ptr->mates_list))
 			slurmctld_diag_stats.malleable_backfilled++;
 		if (debug_flags & DEBUG_FLAG_BACKFILL) {
 			info("backfill: Jobs backfilled since boot: %u",

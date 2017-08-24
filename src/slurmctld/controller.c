@@ -1695,33 +1695,32 @@ static void *_slurmctld_background(void *no_data)
 	debug3("_slurmctld_background pid = %u", getpid());
 
 	while (1) {
-		now = time(NULL);
-		START_TIMER;
-
-		/* Marco: calculate avg wait time of running jobs */
-		ListIterator job_iterator;
-		struct job_record *job_ptr = NULL;
-		uint32_t wait_time_acc = 0;
-		uint32_t job_count = 0;
-		
-
-		lock_slurmctld(job_write_lock);
-        	job_iterator = list_iterator_create(job_list);
-        	while ((job_ptr = list_next(job_iterator))) {
-                	if ((IS_JOB_PENDING(job_ptr)) ) {
-                        	wait_time_acc += job_ptr->start_time - job_ptr->details->submit_time;
-        			job_count++;
-			}
-		}
-        	list_iterator_destroy(job_iterator);
-        	unlock_slurmctld(job_write_lock);
-		slurmctld_diag_stats.avg_wait_time = (double) wait_time_acc / job_count;
-		debug("Average wait time for jobs: %f", slurmctld_diag_stats.avg_wait_time);
-
 		for (i = 0; ((i < 10) && (slurmctld_config.shutdown_time == 0));
 		     i++) {
 			usleep(100000);
 		}
+
+		now = time(NULL);
+                START_TIMER;
+
+		/* Marco: calculate avg wait time of running jobs */
+                ListIterator job_iterator;
+                struct job_record *job_ptr = NULL;
+                uint32_t wait_time_acc = 0;
+                uint32_t job_count = 0;
+
+                lock_slurmctld(job_node_read_lock);
+                job_iterator = list_iterator_create(job_list);
+                while ((job_ptr = list_next(job_iterator))) {
+                        if ((!IS_JOB_PENDING(job_ptr)) ) {
+                                wait_time_acc += job_ptr->start_time - job_ptr->details->submit_time;
+                                job_count++;
+                        }
+                }
+                list_iterator_destroy(job_iterator);
+                unlock_slurmctld(job_node_read_lock);
+                slurmctld_diag_stats.avg_wait_time = (double) wait_time_acc / job_count;
+                debug("Average wait time for jobs: %f", slurmctld_diag_stats.avg_wait_time);
 
 		if (slurmctld_conf.slurmctld_debug <= 3)
 			no_resp_msg_interval = 300;
