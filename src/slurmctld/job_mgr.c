@@ -5953,7 +5953,7 @@ static int _job_create(job_desc_msg_t *job_desc, int allocate, int will_run,
 	job_ptr->best_switch = true;
 
 	/* Init mates list */
-	job_ptr->mates_list = list_create(_destroy_uint32_ptr);
+	job_ptr->mates_list = list_create(NULL);
 
 	FREE_NULL_LIST(license_list);
 	FREE_NULL_LIST(gres_list);
