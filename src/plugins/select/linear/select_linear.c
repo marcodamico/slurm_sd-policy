@@ -3304,7 +3304,8 @@ static int _add_job_to_nodes(struct cr_record *cr_ptr,
 		return SLURM_ERROR;
 	}
 
-	exclusive = (job_ptr->details->share_res == 0);
+	exclusive = (job_ptr->details->share_res == 0) ||
+			(job_ptr->details->share_res == DROM_MALLEABILITY);
 	if (alloc_all)
 		_add_run_job(cr_ptr, job_ptr->job_id);
 	_add_tot_job(cr_ptr, job_ptr->job_id);
