@@ -2809,7 +2809,8 @@ static int _rm_job_from_nodes(struct cr_record *cr_ptr,
 	}
 
 	is_job_running = _rem_run_job(cr_ptr, job_ptr->job_id);
-	exclusive = (job_ptr->details->share_res == 0);
+	exclusive = (job_ptr->details->share_res == 0) ||
+		    (job_ptr->details->share_res == DROM_MALLEABILITY);
 	i_first = bit_ffs(job_resrcs_ptr->node_bitmap);
 	i_last  = bit_fls(job_resrcs_ptr->node_bitmap);
 	if (i_first == -1)	/* job has no nodes */
@@ -3128,7 +3129,8 @@ static int _decr_node_job_cnt(int node_inx, struct job_record *job_ptr,
 	bool exclusive = false, is_job_running;
 
 	if (job_ptr->details)
-		exclusive = (job_ptr->details->share_res == 0);
+		exclusive = (job_ptr->details->share_res == 0) ||
+			    (job_ptr->details->share_res == DROM_MALLEABILITY);
 	if (exclusive) {
 		if (cr_ptr->nodes[node_inx].exclusive_cnt)
 			cr_ptr->nodes[node_inx].exclusive_cnt--;
@@ -3571,7 +3573,8 @@ static void _init_node_cr(void)
 			continue;
 
 		if (job_ptr->details)
-			exclusive = (job_ptr->details->share_res == 0);
+			exclusive = (job_ptr->details->share_res == 0) ||
+				    (job_ptr->details->share_res == DROM_MALLEABILITY);
 		else
 			exclusive = 0;
 		node_offset = -1;
