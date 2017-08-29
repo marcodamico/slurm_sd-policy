@@ -633,12 +633,12 @@ static int _filter_malleable_node(struct job_record *job_ptr, int node_id, int c
                 }
         }
         list_iterator_destroy(job_iterator);
-	debug2("Stealable cpus %d, free %d in node %d", cpu_stealable, cpu_free, node_id);
+	debug3("Stealable cpus %d, free %d in node %d", cpu_stealable, cpu_free, node_id);
         //TODO: fix default value for tpn
         if((job_ptr->details->ntasks_per_node && 
 	   (cpu_free + cpu_stealable < job_ptr->details->ntasks_per_node)) || 
 	   (cpu_free + cpu_stealable < 1)) {
-                debug2("Job %d cannot be allocated on node %d for lack of stealable cpus",
+                debug3("Job %d cannot be allocated on node %d for lack of stealable cpus",
 		      job_ptr->job_id, node_id);
 		return 1;
            }
