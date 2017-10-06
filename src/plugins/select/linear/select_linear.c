@@ -951,29 +951,29 @@ static double _pick_mates_recursive(job_unit_t **useful_jobs,
 				 bitstr_t *tmp_bitmap, bitstr_t *best_bitmap, bitstr_t *bitmap, 
 				 int *nmates, bool exceed_alloc, int req_nodes)
 {
-	int i, j, last, tmp_nodes;
-	double best = -1, evaluation;
-	bitstr_t *original_bitmap = bit_alloc(bit_size(bitmap));
-	if (level == max_level) {
-		debug3("max level, map size %d", (bit_set_count(tmp_bitmap)));
-		if (bit_set_count(tmp_bitmap) >= req_nodes)
-			return evaluate_solution(solution, level);
-		else 
-			return -1;
-	}
-	if(bit_set_count(tmp_bitmap) >= req_nodes) {
-		return evaluate_solution(solution, level);
-	}
-	for (i = 0; i < max_njobs; i++) {
-		/* check if already picked */
-		for (j = 0; j < level; j++)
-                	if (solution[j] == useful_jobs[i])
-				break;
-		if (j < level && level != 0)
-			continue;
+        int i, j, last, tmp_nodes;
+        double best = -1, evaluation;
+        bitstr_t *original_bitmap;
+        if (level == max_level) {
+                debug3("max level, map size %d", (bit_set_count(tmp_bitmap)));
+                if (bit_set_count(tmp_bitmap) >= req_nodes)
+                        return evaluate_solution(solution, level);
+                else
+                        return -1;
+        }
+        if(bit_set_count(tmp_bitmap) >= req_nodes) {
+                return evaluate_solution(solution, level);
+        }
+	original_bitmap = bit_alloc(bit_size(bitmap));
+        for (i = 0; i < max_njobs; i++) {
+                /* check if already picked */
+                for (j = 0; j < level; j++)
+                        if (solution[j] == useful_jobs[i])
+                                break;
+                if (j < level && level != 0)
+                        continue;
 
-		//debug3("job %d", useful_jobs[i]->job_ptr->job_id);
-		
+                //debug3("job %d", useful_jobs[i]->job_ptr->job_id);
 		tmp_nodes = bit_set_count(tmp_bitmap);
 		if ((tmp_nodes + useful_jobs[i]->job_ptr->node_cnt)  > req_nodes) {
 			if (!exceed_alloc)
@@ -1016,10 +1016,11 @@ static double _pick_mates_recursive(job_unit_t **useful_jobs,
 		        *nmates = level+1;
                 }
 backtrack_cont:
-		solution[level] = NULL;
-		bit_copybits(tmp_bitmap, original_bitmap);
-	}
-	return best;
+                solution[level] = NULL;
+                bit_copybits(tmp_bitmap, original_bitmap);
+        }
+	FREE_NULL_BITMAP(original_bitmap);
+        return best;
 }
 
 
@@ -1034,20 +1035,20 @@ static job_unit_t **_find_mates_recursive(job_unit_t **useful_jobs, int max_jobs
         job_unit_t **best_solution = xmalloc(sizeof(job_unit_t *) * max_jobs);
         int i;
 	bitstr_t *tmp_bitmap = bit_alloc(bit_size(bitmap));
-		
-        debug2("In _find_mates");
+        debug2("In _find_mates_recursive");
 
         if (free_nodes_map != NULL) {
                 bit_or(tmp_bitmap, free_nodes_map);
         }
-	for (i = 0; i < max_jobs; i++)
-		best_solution[i] = NULL;
-	_pick_mates_recursive(useful_jobs, solution, best_solution, 
-				     njobs, max_jobs, 0, 
-				     tmp_bitmap, best_bitmap, bitmap,
-				     nmates, exceed_alloc, req_nodes);
-	bit_free(tmp_bitmap);
-	return best_solution;
+        for (i = 0; i < max_jobs; i++)
+                best_solution[i] = NULL;
+        _pick_mates_recursive(useful_jobs, solution, best_solution,
+                                     njobs, max_jobs, 0,
+                                     tmp_bitmap, best_bitmap, bitmap,
+                                     nmates, exceed_alloc, req_nodes);
+        FREE_NULL_BITMAP(tmp_bitmap);
+	xfree(solution);
+        return best_solution;
 }
 
 /* Iterative version */
@@ -1097,11 +1098,11 @@ static job_unit_t **_find_mates(job_unit_t **useful_jobs, int max_jobs, int njob
 		solution[n_units++] = useful_jobs[i];
                 debug3("took job %d", useful_jobs[i]->job_ptr->job_id);
                 debug3("tmp_nodes = %d, new_nodes = %d ", tmp_nodes, new_nodes);
-		if (n_units == max_jobs)
-			return solution;
-	}
-			
-	return NULL;
+                if (n_units == max_jobs)
+                        return solution;
+        }
+	xfree(solution);
+        return NULL;
 }
 
 static int _filter_jobs(struct job_record *job_ptr, bitstr_t *bitmap,
@@ -1136,21 +1137,22 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	//double best_evaluation = MAX_SLOWDOWN * MAX_SLOWDOWN, current_evaluation;
 	bitstr_t * best_bitmap;//, *current_bitmap;
         debug2("In _find_job_mates");
-	slurm_ctl_conf_t *config = slurm_conf_lock();
-	float sharing_factor = config->sharing_factor;
-	slurm_conf_unlock();
-	/* This is the initial solution */
-	debug3("bitmap before filter_and_evaluate_jobs: %s", bit_fmt_hexmask(bitmap));
-	useful_jobs = filter_and_evaluate_jobs(job_ptr, &njobs, bitmap);
-	debug3("bitmap after filter_and_evaluate_jobs: %s", bit_fmt_hexmask(bitmap));
-	debug3("Got %d jobs, sorting...", njobs);
-	if (njobs == 0) {
-		debug("No mates avaiable");
-		return rc;
-	}
-	qsort(useful_jobs, njobs, sizeof(job_unit_t *), cmp_jobs);
-	for(i=0;i<njobs;i++)
-		debug3("job slowdown: %f", useful_jobs[i]->slowdown);	
+        slurm_ctl_conf_t *config = slurm_conf_lock();
+        float sharing_factor = config->sharing_factor;
+        slurm_conf_unlock();
+        /* This is the initial solution */
+        debug3("bitmap before filter_and_evaluate_jobs: %s", bit_fmt_hexmask(bitmap));
+        useful_jobs = filter_and_evaluate_jobs(job_ptr, &njobs, bitmap);
+        debug3("bitmap after filter_and_evaluate_jobs: %s", bit_fmt_hexmask(bitmap));
+        debug3("Got %d jobs, sorting...", njobs);
+        if (njobs == 0) {
+		xfree(useful_jobs);
+                debug("No mates avaiable");
+                return rc;
+        }
+        qsort(useful_jobs, njobs, sizeof(job_unit_t *), cmp_jobs);
+        for(i=0;i<njobs;i++)
+                debug3("job slowdown: %f", useful_jobs[i]->slowdown);
 //        current_bitmap = bit_alloc(bit_size(bitmap));
 	best_bitmap = bit_alloc(bit_size(bitmap));
 //        bit_clear_all(current_bitmap);
@@ -1175,8 +1177,8 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	}
 */
         clock_t start = clock(), diff;
-	best_solution = _find_mates_recursive(useful_jobs, max_share, njobs, req_nodes, best_bitmap, bitmap, NULL, &nmates, false);
-	if(best_solution[0] != NULL) {
+        best_solution = _find_mates_recursive(useful_jobs, max_share, njobs, req_nodes, best_bitmap, bitmap, NULL, &nmates, false);
+        if(best_solution && best_solution[0] != NULL) {
                 debug3("Found mates!");
 		/*TODO: why not bit_copy*/
                 bit_and(bitmap, best_bitmap);
