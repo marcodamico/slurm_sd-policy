@@ -6893,7 +6893,9 @@ _copy_job_desc_to_job_record(job_desc_msg_t * job_desc,
 	job_ptr->warn_flags  = job_desc->warn_flags;
 	job_ptr->warn_signal = job_desc->warn_signal;
 	job_ptr->warn_time   = job_desc->warn_time;
-
+	job_ptr->lent_for_malleability = 0;
+	job_ptr->backfilled = 0;
+	
 	detail_ptr = job_ptr->details;
 	detail_ptr->argc = job_desc->argc;
 	detail_ptr->argv = job_desc->argv;

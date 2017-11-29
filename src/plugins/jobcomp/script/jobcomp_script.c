@@ -194,6 +194,9 @@ struct jobcomp_info {
 	char *std_in;
 	char *std_out;
 	char *std_err;
+	uint16_t backfilled;
+	uint16_t malleable_sched;
+	uint16_t lent_for_malleability;
 #ifdef HAVE_BG
 	char *connect_type;
 	char *geometry;
@@ -261,6 +264,12 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 		if (job->details->std_err)
 			j->std_err = xstrdup(job->details->std_err);
 	}
+	j->backfilled = job->backfilled;
+	if (list_count(job->mates_list) != 0)
+		j->malleable_sched = 1;
+	else
+		j->malleable_sched = 0;
+	j->lent_for_malleability = job->lent_for_malleability;
 
 #ifdef HAVE_BG
 	j->connect_type = select_g_select_jobinfo_xstrdup(job->select_jobinfo,
@@ -407,6 +416,10 @@ static char ** _create_environment (struct jobcomp_info *job)
 	if (job->std_err)
 		_env_append (&env, "STDERR",     job->std_err);
 
+	_env_append (&env, "BACKFILLED", (job->backfilled ? "yes" : "no"));
+	_env_append (&env, "MALLEABLE_SCHED", (job->malleable_sched ? "yes" : "no"));
+	
+	_env_append_fmt (&env, "LENT", "%u", job->lent_for_malleability);
 #ifdef HAVE_BG
 	_env_append (&env, "BLOCKID",      job->blockid);
 	_env_append (&env, "CONNECT_TYPE", job->connect_type);

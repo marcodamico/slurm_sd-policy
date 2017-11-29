@@ -1776,6 +1776,7 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 		else if ((job_ptr->details == NULL) ||
 			 (job_ptr->details->prolog_running == 0))
 			launch_job(job_ptr);
+		job_ptr->backfilled = 1;
 		slurmctld_diag_stats.backfilled_jobs++;
 		slurmctld_diag_stats.last_backfilled_jobs++;
 		if (list_count(job_ptr->mates_list))

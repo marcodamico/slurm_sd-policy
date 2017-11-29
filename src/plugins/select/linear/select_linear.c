@@ -1193,6 +1193,7 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		for (i = 0; i < nmates; i++) {
 			best_solution[i]->job_ptr->time_limit = best_solution[i]->time_limit;
 			list_append(job_ptr->mates_list, &best_solution[i]->job_ptr->job_id);
+			best_solution[i]->job_ptr->lent_for_malleability++;
 		}
 		debug2("picked mates list:");
 		for (i = 0; i < nmates; i++) {
@@ -4276,7 +4277,6 @@ extern int select_p_job_test(struct job_record *job_ptr, bitstr_t *bitmap,
 		fatal("select_p_job_test: Mode %d is invalid", mode);
 
 	slurm_mutex_unlock(&cr_mutex);
-
 	return rc;
 }
 

@@ -658,6 +658,8 @@ struct job_record {
 	uint32_t magic;			/* magic cookie for data integrity */
 	List mates_list;		/* List of jobs that share nodes in case
 					 * of malleability */
+	uint16_t lent_for_malleability; /* Number of times this jobs lent CPUs for malleability */
+	uint32_t backfilled;
 	char *name;			/* name of the job */
 	char *network;			/* network/switch requirement spec */
 	uint32_t next_step_id;		/* next step id to be used */
