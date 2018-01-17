@@ -197,6 +197,8 @@ struct jobcomp_info {
 	uint16_t backfilled;
 	uint16_t malleable_sched;
 	uint16_t lent_for_malleability;
+	char mates_list[100]; //TODO: dynamic?
+	double last_sd_prediction;
 #ifdef HAVE_BG
 	char *connect_type;
 	char *geometry;
@@ -265,11 +267,21 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 			j->std_err = xstrdup(job->details->std_err);
 	}
 	j->backfilled = job->backfilled;
-	if (list_count(job->mates_list) != 0)
+	if (list_count(job->mates_list) != 0) {
 		j->malleable_sched = 1;
-	else
+		ListIterator itr = list_iterator_create(job->mates_list);
+		uint32_t *value = (uint32_t *)list_next(itr);
+		sprintf(j->mates_list, "%u", *value);
+		while ((value = (uint32_t *) list_next(itr)))
+			sprintf(j->mates_list, "%s;%u",j->mates_list, *value);
+		list_iterator_destroy(itr);
+	}
+	else {
 		j->malleable_sched = 0;
+		j->mates_list[0] = '\0';
+	}
 	j->lent_for_malleability = job->lent_for_malleability;
+	j->last_sd_prediction = job->last_sd_prediction;
 
 #ifdef HAVE_BG
 	j->connect_type = select_g_select_jobinfo_xstrdup(job->select_jobinfo,
@@ -416,10 +428,12 @@ static char ** _create_environment (struct jobcomp_info *job)
 	if (job->std_err)
 		_env_append (&env, "STDERR",     job->std_err);
 
-	_env_append (&env, "BACKFILLED", (job->backfilled ? "yes" : "no"));
-	_env_append (&env, "MALLEABLE_SCHED", (job->malleable_sched ? "yes" : "no"));
+	_env_append_fmt (&env, "BACKFILLED", "%d", job->backfilled);
+	_env_append_fmt (&env, "MALLEABLE_SCHED", "%d", job->malleable_sched);
+	_env_append (&env, "MATES_LIST", job->mates_list);
 	
 	_env_append_fmt (&env, "LENT", "%u", job->lent_for_malleability);
+	_env_append_fmt (&env, "SLOWDOWN_PREDICTION", "%f", job->last_sd_prediction);
 #ifdef HAVE_BG
 	_env_append (&env, "BLOCKID",      job->blockid);
 	_env_append (&env, "CONNECT_TYPE", job->connect_type);
