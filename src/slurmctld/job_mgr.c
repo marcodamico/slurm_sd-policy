@@ -5954,7 +5954,6 @@ static int _job_create(job_desc_msg_t *job_desc, int allocate, int will_run,
 
 	/* Init mates list */
 	job_ptr->mates_list = list_create(NULL);
-
 	FREE_NULL_LIST(license_list);
 	FREE_NULL_LIST(gres_list);
 	FREE_NULL_BITMAP(req_bitmap);
@@ -6895,6 +6894,7 @@ _copy_job_desc_to_job_record(job_desc_msg_t * job_desc,
 	job_ptr->warn_time   = job_desc->warn_time;
 	job_ptr->lent_for_malleability = 0;
 	job_ptr->backfilled = 0;
+	job_ptr->last_sd_prediction = 0;
 	
 	detail_ptr = job_ptr->details;
 	detail_ptr->argc = job_desc->argc;

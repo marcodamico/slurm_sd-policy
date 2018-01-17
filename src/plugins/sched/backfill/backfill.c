@@ -1574,6 +1574,10 @@ next_task:
                 		if (list_count(job_ptr->mates_list)) {
                 	        	debug("malleable backfill happened, reconsider jobs");
                        		 	last_job_ptr = job_queue_rec;
+					time_t now = time(NULL);
+					job_ptr->last_sd_prediction = ((difftime(now, job_ptr->details->submit_time) + 
+								  (job_ptr->time_limit * 60)) /
+								   job_ptr->original_time_limit * 60);
                 		        goto BEGINNING;
 					local_loops=0;
 		                }
