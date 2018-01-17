@@ -660,6 +660,7 @@ struct job_record {
 					 * of malleability */
 	uint16_t lent_for_malleability; /* Number of times this jobs lent CPUs for malleability */
 	uint32_t backfilled;
+	double last_sd_prediction;	/* Last slowdown prediction */
 	char *name;			/* name of the job */
 	char *network;			/* network/switch requirement spec */
 	uint32_t next_step_id;		/* next step id to be used */
