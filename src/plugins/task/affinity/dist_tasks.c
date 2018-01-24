@@ -433,8 +433,8 @@ int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids)
         cpu_set_t *masks;
 
 	debug("In get_DLB_procs_masks");
+	DLB_DROM_Init();
 	DLB_DROM_GetPidList(dlb_pids, npids, MAX_PROCS);
-
         debug("DLB found %d processes", *npids);
         if(*npids == 0) {
 		masks = NULL;
@@ -451,7 +451,7 @@ int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids)
 			xfree(masks);
                         return SLURM_ERROR;
                 }
-
+	DLB_DROM_Finalize();
         *dlb_masks = masks;
         return SLURM_SUCCESS;
 }
@@ -600,7 +600,8 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
 			cpuset_to_str(conflict_mask, str);
                         debug("conflict_mask: %s", str);
 			to_steal = values[j] > 1 ? values[j] : 1;
-
+			//TODO: try: steal one per time instead of getting it from values vector
+			to_steal = 1;
 			if(to_steal > max_steal_per_task)
 				to_steal = max_steal_per_task;
 			//TODO:bring this out, we are at task level here, not job level, 
@@ -629,7 +630,7 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
                         	values[j] = -1;
                         	nordered--;
                 	}
-                	sort_by_values(ordered,values,nordered);		
+                	sort_by_values(ordered,values,nordered);
 		}
 		xfree(ordered_procs);
 		xfree(procs);
@@ -1251,10 +1252,13 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					debug("new mask: %s", mask);
 					cpuset_to_str(&dlb_masks[k], mask);
 					debug("old mask: %s", mask);
-					if(DLB_DROM_SetProcessMask(pids[k],(dlb_cpu_set_t) &cpu_steal_infos[i]->assigned_mask[match])) {
-                               			debug("Failed to set DROM process mask of %d",pids[j]);
+					int error;
+					DLB_DROM_Init();
+					if((error = DLB_DROM_SetProcessMask(pids[k],(dlb_cpu_set_t) &cpu_steal_infos[i]->assigned_mask[match]))) {
+                               			debug("Failed to set DROM process mask of %d, error: %d",pids[j], error);
                                			return SLURM_ERROR;
                         		}
+					DLB_DROM_Finalize();
 					//update extrae infos
                                         //first stop moved threads
                                         for(m = 0; m < ncpus; m++)

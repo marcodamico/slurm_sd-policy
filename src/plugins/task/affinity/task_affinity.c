@@ -99,7 +99,7 @@ extern int init (void)
 	/* Marco D'Amico: Init DLB and structures */
 	DLB_DROM_Init();
 	DLB_DROM_GetNumCpus(&ncpus);
-	//DLB_Drom_Finalize();
+	DLB_DROM_Finalize();
 	return SLURM_SUCCESS;
 }
 
@@ -110,7 +110,7 @@ extern int init (void)
 extern int fini (void)
 {
 	debug("%s unloaded", plugin_name);
-	DLB_DROM_Finalize();
+	//DLB_DROM_Finalize();
 	return SLURM_SUCCESS;
 }
 
@@ -571,11 +571,12 @@ extern int task_p_pre_launch (stepd_step_rec_t *job)
 		//char **p = job->env - 2;
 		char **Drom_env = (char **) malloc(sizeof(char*));
 		*Drom_env = NULL;
-
+		DLB_DROM_Init();
 		if(DLB_DROM_PreInit(job->envtp->task_pid, &cur_mask, 1, &Drom_env)) {
 			debug("Error pre registering DROM mask");
 			rc = SLURM_ERROR;
 		}
+		DLB_DROM_Finalize();
 		//TODO:update size in p[1]
 		//p[1] = p[1] + 2; 
 		//job->env = p + 2;
@@ -646,12 +647,13 @@ extern int task_p_post_term (stepd_step_rec_t *job, stepd_step_task_info_t *task
 		return SLURM_ERROR;
 	}
 #endif
+	DLB_DROM_Init();
 	if(!job->batch &&
 		DLB_DROM_PostFinalize(job->envtp->task_pid, 0)) {
 		debug("Failure in DLB_Drom_PostFinalize");
 		return SLURM_ERROR;
 	}
-
+	DLB_DROM_Finalize();
 	return SLURM_SUCCESS;
 }
 

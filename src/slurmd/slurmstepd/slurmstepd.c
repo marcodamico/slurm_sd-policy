@@ -65,6 +65,7 @@
 #include "src/slurmd/common/slurmstepd_init.h"
 #include "src/slurmd/common/setproctitle.h"
 #include "src/slurmd/common/proctrack.h"
+#include "src/slurmd/common/task_plugin.h"
 #include "src/slurmd/slurmd/slurmd.h"
 #include "src/slurmd/slurmstepd/mgr.h"
 #include "src/slurmd/slurmstepd/req.h"
