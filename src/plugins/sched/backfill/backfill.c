@@ -428,15 +428,37 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 		
 		if (((rc != SLURM_SUCCESS) || (job_ptr->start_time > now)) &&
 		    (orig_shared != 0)) {
-			FREE_NULL_BITMAP(*avail_bitmap);
-			*avail_bitmap = tmp_bitmap;
-			rc = select_g_job_test(job_ptr, *avail_bitmap,
-					       min_nodes, max_nodes, req_nodes,
-					       SELECT_MODE_WILL_RUN,
-					       preemptee_candidates,
-					       &preemptee_job_list,
-					       exc_core_bitmap);
-			FREE_NULL_LIST(preemptee_job_list);
+			//save later start prediction
+			bitstr_t *later_start_bitmap = *avail_bitmap;
+			/* COMMENTED FOR TEST: predict if malleability will improve Slowdown
+			slurm_ctl_conf_t *config = slurm_conf_lock();
+        		float sharing_factor = config->sharing_factor;
+        		slurm_conf_unlock();
+			uint32_t time_limit_s = job_ptr->time_limit * 60;
+			if (job_ptr->start_time && ((now + time_limit_s / sharing_factor) >
+			    (job_ptr->start_time + time_limit_s))) {
+				debug("Malleability won't help reducing slowdown");
+				FREE_NULL_BITMAP(tmp_bitmap);
+			}
+			else {*/
+			
+				//FREE_NULL_BITMAP(*avail_bitmap);
+				*avail_bitmap = tmp_bitmap;
+				rc = select_g_job_test(job_ptr, *avail_bitmap,
+						       min_nodes, max_nodes, req_nodes,
+						       SELECT_MODE_WILL_RUN,
+					               preemptee_candidates,
+					               &preemptee_job_list,
+					               exc_core_bitmap);
+				FREE_NULL_LIST(preemptee_job_list);
+//			}
+					//if malleability not possible restore predicted map in static phase
+			if (job_ptr->start_time > now) {
+				*avail_bitmap = later_start_bitmap;
+				FREE_NULL_BITMAP(tmp_bitmap);
+			}
+			else
+				FREE_NULL_BITMAP(later_start_bitmap);
 		} else
 			FREE_NULL_BITMAP(tmp_bitmap);
 	}
@@ -809,7 +831,7 @@ static int _attempt_backfill(void)
 	DEF_TIMERS;
 	bool filter_root = false;
 	List job_queue;
-	job_queue_rec_t *job_queue_rec;
+	job_queue_rec_t *job_queue_rec = NULL;
 	slurmdb_qos_rec_t *qos_ptr = NULL;
 	int bb, i, j, node_space_recs;
 	struct job_record *job_ptr;
@@ -868,7 +890,8 @@ static int _attempt_backfill(void)
 		debug("backfill: beginning");
 	sched_start = orig_sched_start = now = time(NULL);
 	gettimeofday(&start_tv, NULL);
-
+	job_queue_rec_t *last_job_ptr = NULL;
+BEGINNING:
 	if (slurm_get_root_filter())
 		filter_root = true;
 
@@ -930,6 +953,8 @@ static int _attempt_backfill(void)
 	}
 	sort_job_queue(job_queue);
 	while (1) {
+		if(!last_job_ptr)
+			xfree(job_queue_rec);
 		job_queue_rec = (job_queue_rec_t *) list_pop(job_queue);
 		if (!job_queue_rec) {
 			if (debug_flags & DEBUG_FLAG_BACKFILL)
@@ -1050,7 +1075,7 @@ static int _attempt_backfill(void)
 
 		orig_start_time = job_ptr->start_time;
 		orig_time_limit = job_ptr->time_limit;
-		xfree(job_queue_rec);
+		//xfree(job_queue_rec);
 
 next_task:
 		job_test_count++;
@@ -1371,10 +1396,28 @@ next_task:
 		if (debug_flags & DEBUG_FLAG_BACKFILL_MAP)
 			_dump_job_test(job_ptr, avail_bitmap, start_res);
 		job_ptr->bit_flags |= BACKFILL_TEST;
+		int saved_share_res = 0;
+		if (last_job_ptr) {
+			//cmp function used by sort_job_queue crashes
+			if ( (last_job_ptr->priority < job_queue_rec->priority) ||
+			     (last_job_ptr->priority = job_queue_rec->priority && last_job_ptr->job_id
+				> job_queue_rec->job_id) ) 
+			{
+				debug("retrying normal bf for job %d", job_ptr->job_id);
+				saved_share_res = job_ptr->details->share_res;
+				job_ptr->details->share_res = 0;
+			}
+			else {
+				debug("got to the old point");
+				xfree(last_job_ptr);
+				last_job_ptr = NULL;
+			}
+		}
 		j = _try_sched(job_ptr, &avail_bitmap, min_nodes, max_nodes,
 			       req_nodes, exc_core_bitmap);
 		job_ptr->bit_flags &= ~BACKFILL_TEST;
-
+		if (saved_share_res)
+			job_ptr->details->share_res = saved_share_res;
 		now = time(NULL);
 		if (j != SLURM_SUCCESS) {
 			_set_job_time_limit(job_ptr, orig_time_limit);
@@ -1437,10 +1480,12 @@ next_task:
 					job_ptr->time_limit = comp_time_limit;
 					job_ptr->limit_set.time = 1;
 				} else {
-					acct_policy_alter_job(
-						job_ptr, orig_time_limit);
-					_set_job_time_limit(job_ptr,
-							    orig_time_limit);
+					if (!job_ptr->mates_list) {//we don't share nodes
+						acct_policy_alter_job(
+							job_ptr, orig_time_limit);
+						_set_job_time_limit(job_ptr, orig_time_limit);
+						job_ptr->time_limit = orig_time_limit; //TODO: useless?
+					}
 				}
 			} else if ((rc == SLURM_SUCCESS) && job_ptr->time_min) {
 				/* Set time limit as high as possible */
@@ -1524,6 +1569,14 @@ next_task:
 					}
 					break;
 				}
+				/* Marco: I am altering running jobs and jobs in queue 
+                   		    already processed, reprocess them */
+                		if (list_count(job_ptr->mates_list)) {
+                	        	debug("malleable backfill happened, reconsider jobs");
+                       		 	last_job_ptr = job_queue_rec;
+                		        goto BEGINNING;
+					local_loops=0;
+		                }
 				if (job_ptr->array_task_id != NO_VAL) {
 					/* Try starting next task of job array */
 					job_ptr = find_job_record(job_ptr->
