@@ -84,7 +84,7 @@
 #define RUN_JOB_INCR	16
 #define SELECT_DEBUG	0
 
-float MAX_SLOWDOWN = 2.0f;
+float MAX_SLOWDOWN = 2.5f;
 int MIX_WITH_FREE = 1;
 
 typedef struct job_unit {
@@ -1110,17 +1110,23 @@ static int _filter_jobs(struct job_record *job_ptr, bitstr_t *bitmap,
                           uint32_t req_nodes)
 {
 	int njobs, i, j;
+	int first, last;
 	job_unit_t **useful_jobs = filter_and_evaluate_jobs(job_ptr, &njobs, bitmap);
 	//filter jobs and return sum of remaining jobs bitmaps
 	//TODO: I'm not considering free nodes!
 	bit_clear_all(bitmap);
 	for(j = 0; j < njobs; j++) {
-		for(i = 0; i < bit_size(useful_jobs[j]->job_ptr->node_bitmap); i++) {
-        		if (bit_test(useful_jobs[j]->job_ptr->node_bitmap, i)) {
+        	first = bit_ffs(useful_jobs[j]->job_ptr->node_bitmap);
+		last = bit_fls(useful_jobs[j]->job_ptr->node_bitmap);
+                for(i = first; i < last; i++) {
+			if (bit_test(useful_jobs[j]->job_ptr->node_bitmap, i)) {
                         	bit_set(bitmap, i);
                 	}
 		}
 	}
+	for(i = 0; i < njobs; i++)
+		xfree(useful_jobs[i]);
+	xfree(useful_jobs);
 	return bit_set_count(bitmap);	
 }
 
@@ -3936,7 +3942,11 @@ static int _will_run_test(struct job_record *job_ptr, bitstr_t *bitmap,
         	//        }
         	}
 	        FREE_NULL_BITMAP(orig_map);
-		return SLURM_ERROR;
+		return SLURM_SUCCESS; //we need to return SUCCESS, but keep last
+				      // calculated start time grater then now 
+				      //if malleable and static bf fail
+		//TODO: Instead of returning we could estimate start with malleability
+		//but i think it is too hard
 	}
 
 	max_run_jobs = MAX((max_share - 1), 1);	/* exclude this job */
