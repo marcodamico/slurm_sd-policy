@@ -1480,11 +1480,17 @@ next_task:
 					job_ptr->time_limit = comp_time_limit;
 					job_ptr->limit_set.time = 1;
 				} else {
-					if (!job_ptr->mates_list) {//we don't share nodes
+					if (!list_count(job_ptr->mates_list)) {//we don't share nodes
 						acct_policy_alter_job(
 							job_ptr, orig_time_limit);
 						_set_job_time_limit(job_ptr, orig_time_limit);
 						job_ptr->time_limit = orig_time_limit; //TODO: useless?
+					}
+					else {
+						debug("Sharing, keep calculated timelimit, %d", comp_time_limit);
+						acct_policy_alter_job(
+                                                	job_ptr, comp_time_limit);
+                                        	job_ptr->time_limit = comp_time_limit;
 					}
 				}
 			} else if ((rc == SLURM_SUCCESS) && job_ptr->time_min) {
@@ -1497,11 +1503,15 @@ next_task:
 				job_ptr->time_limit = comp_time_limit;
 				job_ptr->limit_set.time = 1;
 			} else {
-				/* Marco: I might have alterd time limit because of 
-                         	 * malleability */
-				if (!job_ptr->mates_list) {//we don't share nodes
+				if (!list_count(job_ptr->mates_list)) {
 					acct_policy_alter_job(job_ptr, orig_time_limit);
-					_set_job_time_limit(job_ptr, orig_time_limit);
+					job_ptr->time_limit = orig_time_limit;
+				}
+				else {
+					debug("Sharing, keep calculated timelimit, %d", comp_time_limit);
+					acct_policy_alter_job(
+                                                        job_ptr, comp_time_limit);
+                                        job_ptr->time_limit = comp_time_limit;
 				}
 			}
 			/* Only set end_time if start_time is set,
@@ -1572,12 +1582,12 @@ next_task:
 				/* Marco: I am altering running jobs and jobs in queue 
                    		    already processed, reprocess them */
                 		if (list_count(job_ptr->mates_list)) {
-                	        	debug("malleable backfill happened, reconsider jobs");
+                	        	debug("malleable backfill happened, reconsider jobs %d %d %d", job_ptr->end_time, job_ptr->details->submit_time, job_ptr->original_time_limit * 60);
                        		 	last_job_ptr = job_queue_rec;
-					time_t now = time(NULL);
-					job_ptr->last_sd_prediction = ((difftime(now, job_ptr->details->submit_time) + 
-								  (job_ptr->time_limit * 60)) /
-								   job_ptr->original_time_limit * 60);
+					job_ptr->last_sd_prediction = (double)
+						difftime(job_ptr->end_time, 
+						 job_ptr->details->submit_time) /
+						(job_ptr->original_time_limit * 60);
                 		        goto BEGINNING;
 					local_loops=0;
 		                }
