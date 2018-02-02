@@ -261,7 +261,7 @@ extern int slurm_jobcomp_log_record ( struct job_record *job_ptr )
 	if ((job_ptr->time_limit == NO_VAL) && job_ptr->part_ptr)
 		time_limit = job_ptr->part_ptr->max_time;
 	else
-		time_limit = job_ptr->time_limit;
+		time_limit = job_ptr->original_time_limit;
 	if (time_limit == INFINITE)
 		strcpy(lim_str, "UNLIMITED");
 	else {
