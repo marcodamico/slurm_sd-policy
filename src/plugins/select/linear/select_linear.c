@@ -1118,12 +1118,12 @@ static int _filter_jobs(struct job_record *job_ptr, bitstr_t *bitmap,
 	for(j = 0; j < njobs; j++) {
         	first = bit_ffs(useful_jobs[j]->job_ptr->node_bitmap);
 		last = bit_fls(useful_jobs[j]->job_ptr->node_bitmap);
-                for(i = first; i < last; i++) {
-			if (bit_test(useful_jobs[j]->job_ptr->node_bitmap, i)) {
-                        	bit_set(bitmap, i);
-                	}
-		}
-	}
+                for(i = first; i <= last; i++) {
+                        if (bit_test(useful_jobs[j]->job_ptr->node_bitmap, i)) {
+                                bit_set(bitmap, i);
+                        }
+                }
+        }
 	for(i = 0; i < njobs; i++)
 		xfree(useful_jobs[i]);
 	xfree(useful_jobs);
