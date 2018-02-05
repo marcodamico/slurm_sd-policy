@@ -2053,6 +2053,12 @@ extern void launch_job(struct job_record *job_ptr)
 //	if (slurmctld_extrae_start_job(job_ptr, node_record_table_ptr) != SLURM_SUCCESS)
 	if (slurmctld_extrae_start_job(job_ptr) != SLURM_SUCCESS)
 		debug("Error in slurmctld_extrae_start_job");
+	if(list_count(job_ptr->mates_list)) {
+		job_ptr->last_sd_prediction = (double)
+			difftime(job_ptr->end_time, job_ptr->details->submit_time) /
+			(job_ptr->original_time_limit * 60);
+//		slurmctld_diag_stats.malleable_scheduled++;
+	}
 }
 
 /*
