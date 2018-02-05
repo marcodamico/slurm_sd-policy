@@ -435,8 +435,10 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
         		float sharing_factor = config->sharing_factor;
         		slurm_conf_unlock();
 			uint32_t time_limit_s = job_ptr->time_limit * 60;
-			if (job_ptr->start_time && ((now + time_limit_s / sharing_factor) >
-			    (job_ptr->start_time + time_limit_s))) {
+			double mall_response_time = (double) now + time_limit_s / sharing_factor;
+			double response_time = job_ptr->start_time + time_limit_s;
+			if (job_ptr->start_time &&
+				(mall_response_time > response_time)) {
 				debug("Malleability won't help reducing slowdown");
 				FREE_NULL_BITMAP(tmp_bitmap);
 			}
@@ -1492,7 +1494,6 @@ next_task:
                                                 	job_ptr, comp_time_limit);
                                         	job_ptr->time_limit = comp_time_limit;
 					}
-				}
 			} else if ((rc == SLURM_SUCCESS) && job_ptr->time_min) {
 				/* Set time limit as high as possible */
 				acct_policy_alter_job(job_ptr, comp_time_limit);
@@ -1512,6 +1513,12 @@ next_task:
 					acct_policy_alter_job(
                                                         job_ptr, comp_time_limit);
                                         job_ptr->time_limit = comp_time_limit;
+				}
+				else {
+					debug("Sharing, keep calculated timelimit, %d", comp_time_limit);
+					acct_policy_alter_job(
+							job_ptr, comp_time_limit);
+					job_ptr->time_limit = comp_time_limit;
 				}
 			}
 			/* Only set end_time if start_time is set,
@@ -1589,7 +1596,6 @@ next_task:
 						 job_ptr->details->submit_time) /
 						(job_ptr->original_time_limit * 60);
                 		        goto BEGINNING;
-					local_loops=0;
 		                }
 				if (job_ptr->array_task_id != NO_VAL) {
 					/* Try starting next task of job array */

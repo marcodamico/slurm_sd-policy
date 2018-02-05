@@ -742,6 +742,7 @@ static int _job_count_bitmap(struct cr_record *cr_ptr,
 					job_mem = job_memory_node;
 			}
 			avail_mem -= node_ptr->mem_spec_limit;
+			debug("avail_mem %d, alloc_mem %d, job_mem %d, mem_spec_limit %d", avail_mem, alloc_mem, job_mem, node_ptr->mem_spec_limit);
 			if ((alloc_mem + job_mem) > avail_mem) {
 				bit_clear(jobmap, i);
 				continue;
@@ -1192,6 +1193,7 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 		//update time limits
 		for (i = 0; i < nmates; i++) {
 			best_solution[i]->job_ptr->time_limit = best_solution[i]->time_limit;
+			best_solution[i]->job_ptr->end_time = best_solution[i]->job_ptr->start_time + best_solution[i]->job_ptr->time_limit * 60;
 			list_append(job_ptr->mates_list, &best_solution[i]->job_ptr->job_id);
 			best_solution[i]->job_ptr->lent_for_malleability++;
 		}
