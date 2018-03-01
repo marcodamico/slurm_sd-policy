@@ -433,11 +433,12 @@ int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids)
         cpu_set_t *masks;
 
 	debug("In get_DLB_procs_masks");
-	DLB_DROM_Init();
+	DLB_DROM_Attach();
 	DLB_DROM_GetPidList(dlb_pids, npids, MAX_PROCS);
         debug("DLB found %d processes", *npids);
         if(*npids == 0) {
 		masks = NULL;
+		DLB_DROM_Detach();
                 return SLURM_SUCCESS;
 	}
 
@@ -445,13 +446,14 @@ int get_DLB_procs_masks(int *dlb_pids, cpu_set_t **dlb_masks, int *npids)
 
         for(j = 0; j < *npids; j++)
                 if((error = 
-		    DLB_DROM_GetProcessMask(dlb_pids[j], &masks[j]))) {
+		    DLB_DROM_GetProcessMask(dlb_pids[j], &masks[j], 0))) {
                         debug("Error in DLB_Drom_GetProcessMask for pid %d, "
 			      "error %d", dlb_pids[j], error);
 			xfree(masks);
-                        return SLURM_ERROR;
+                    	DLB_DROM_Detach();
+			return SLURM_ERROR;
                 }
-	DLB_DROM_Finalize();
+	DLB_DROM_Detach();
         *dlb_masks = masks;
         return SLURM_SUCCESS;
 }
@@ -1253,12 +1255,12 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					cpuset_to_str(&dlb_masks[k], mask);
 					debug("old mask: %s", mask);
 					int error;
-					DLB_DROM_Init();
-					if((error = DLB_DROM_SetProcessMask(pids[k],(dlb_cpu_set_t) &cpu_steal_infos[i]->assigned_mask[match]))) {
+					DLB_DROM_Attach();
+					if((error = DLB_DROM_SetProcessMask(pids[k],(dlb_cpu_set_t) &cpu_steal_infos[i]->assigned_mask[match], 0))) {
                                			debug("Failed to set DROM process mask of %d, error: %d",pids[j], error);
                                			return SLURM_ERROR;
                         		}
-					DLB_DROM_Finalize();
+					DLB_DROM_Detach();
 					//update extrae infos
                                         //first stop moved threads
                                         for(m = 0; m < ncpus; m++)
