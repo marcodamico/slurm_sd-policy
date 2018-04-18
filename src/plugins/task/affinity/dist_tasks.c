@@ -1258,7 +1258,8 @@ int DLB_Drom_update_masks(int *pids, cpu_set_t *dlb_masks, int npids) {
 					DLB_DROM_Attach();
 					if((error = DLB_DROM_SetProcessMask(pids[k],(dlb_cpu_set_t) &cpu_steal_infos[i]->assigned_mask[match], 0))) {
                                			debug("Failed to set DROM process mask of %d, error: %d",pids[j], error);
-                               			return SLURM_ERROR;
+                				DLB_DROM_Detach();       
+		        			return SLURM_ERROR;
                         		}
 					DLB_DROM_Detach();
 					//update extrae infos
