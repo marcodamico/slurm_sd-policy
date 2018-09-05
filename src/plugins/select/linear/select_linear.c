@@ -57,6 +57,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <time.h>
+#include <math.h>
 
 #include "slurm/slurm.h"
 #include "slurm/slurm_errno.h"
@@ -84,8 +85,19 @@
 #define RUN_JOB_INCR	16
 #define SELECT_DEBUG	0
 
-float MAX_SLOWDOWN = 2.5f;
-int MIX_WITH_FREE = 1;
+#ifdef EVALUATE_RUNTIME
+float MAX_RUNTIME_INC = 2.0f;
+#else
+float MAX_SLOWDOWN=10.00;
+#endif
+
+#ifdef FEEDBACK_WAIT_TIME
+diag_stats_t slurmctld_diag_stats __attribute__((weak)) = {0};
+#elif defined FEEDBACK_SLOWDOWN
+diag_stats_t slurmctld_diag_stats __attribute__((weak)) = {0};
+#endif
+
+int MIX_WITH_FREE = 0;
 
 typedef struct job_unit {
 	long response_time;
@@ -856,15 +868,23 @@ static job_unit_t * _create_job_unit(struct job_record *job_scan_ptr,
 	job_unit->time_limit = (uint32_t)(remaining_time_sharing + elapsed_time) / 60;
 */
 	job_unit->time_limit = job_scan_ptr->time_limit + new_job_ptr->time_limit;
-	job_unit->response_time = (wait_time + 30) / 60 + job_unit->time_limit;
-	job_unit->slowdown = (double) (wait_time / 60.0f + job_unit->time_limit) / job_scan_ptr->original_time_limit; 	
-	
-	debug2("Job %d response time = %ld, slowdown prediction = %f,"
-	      "new time limit = %d, original time limit = %d",
-	       job_scan_ptr->job_id, job_unit->response_time, job_unit->slowdown,
-	       job_unit->time_limit, job_scan_ptr->original_time_limit);
-	
-	return job_unit;
+
+#ifdef EVALUATE_RUNTIME
+	job_unit->runtime_increse = job_unit->time_limit / job_scan_ptr->time_limit;
+	debug2("Job %d response time = %ld, runtime increase prediction = %f,"
+              "new time limit = %d, original time limit = %d",
+               job_scan_ptr->job_id, job_unit->response_time, job_unit->runtime_increse,
+               job_unit->time_limit, job_scan_ptr->original_time_limit);	
+#else
+        job_unit->response_time = (wait_time + 30) / 60 + job_unit->time_limit;
+        job_unit->slowdown = (double) (wait_time / 60.0f + job_unit->time_limit) / job_scan_ptr->original_time_limit;
+
+        debug2("Job %d response time = %ld, slowdown prediction = %f,"
+              "new time limit = %d, original time limit = %d, num nodes = %d",
+               job_scan_ptr->job_id, job_unit->response_time, job_unit->slowdown,
+               job_unit->time_limit, job_scan_ptr->original_time_limit, job_scan_ptr->node_cnt);
+#endif
+        return job_unit;
 }
 
 int _filter_job_pre_evaluation(struct job_record *job_scan_ptr, struct job_record *new_job, bitstr_t *bitmap)

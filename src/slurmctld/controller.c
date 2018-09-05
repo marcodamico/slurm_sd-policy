@@ -1699,6 +1699,70 @@ static void *_slurmctld_background(void *no_data)
 		     i++) {
 			usleep(100000);
 		}
+	/* Marco: calculate avg wait time of running jobs */
+		ListIterator job_iterator;
+		struct job_record *job_ptr = NULL;
+#ifdef FEEDBACK_WAIT_TIME
+        	uint32_t wait_time_acc = 0;
+        	uint32_t job_count = 0;
+
+        	lock_slurmctld(job_node_read_lock);
+        	job_iterator = list_iterator_create(job_list);
+        	while ((job_ptr = list_next(job_iterator))) {
+                	if ((!IS_JOB_PENDING(job_ptr)) ) {
+                        	wait_time_acc += job_ptr->start_time - job_ptr->details->submit_time;
+                        	job_count++;
+                	}
+        	}
+        	list_iterator_destroy(job_iterator);
+        	unlock_slurmctld(job_node_read_lock);
+        	slurmctld_diag_stats.avg_wait_time = (double) wait_time_acc / job_count;
+        	debug("Average wait time for jobs: %f", slurmctld_diag_stats.avg_wait_time);
+#elif defined FEEDBACK_SLOWDOWN
+		double slowdown_acc = 0;
+		uint32_t job_count = 0;
+//		double sd_array[1000];
+		lock_slurmctld(job_node_read_lock);
+		job_iterator = list_iterator_create(job_list);
+		while ((job_ptr = list_next(job_iterator))) {
+			if ((!IS_JOB_PENDING(job_ptr))) {
+				double sd = (double) (job_ptr->end_time - job_ptr->details->submit_time) / (60 * job_ptr->original_time_limit);
+				slowdown_acc += sd;
+//				sd_array[job_count] = sd;
+				job_count++;
+			}
+		}
+		list_iterator_destroy(job_iterator);
+		unlock_slurmctld(job_node_read_lock);
+
+/* order vector used for percentiles
+		int c,d,position;
+		double  swap;
+		for (c = 0; c < (job_count-1); c++) {
+			position = c;
+      			for (d = c + 1; d < job_count; d++ ) {
+         			if (sd_array[position] > sd_array[d] )
+            				position = d;
+      			}
+      			if ( position != c ) {
+         			swap = sd_array[c];
+         			sd_array[c] = sd_array[position];
+         			sd_array[position] = swap;
+      			}
+   		}
+*/
+		if(job_count) {
+			slurmctld_diag_stats.avg_slowdown = (double) slowdown_acc / job_count;
+			fprintf(stats,"Average slowdown for running jobs: %f", slurmctld_diag_stats.avg_slowdown);
+			debug("Average slowdown for running jobs: %f", slurmctld_diag_stats.avg_slowdown);
+//			int median = (double) job_count * 0.5f;
+//			int perc70 = (double) job_count * 0.7f;
+//			debug("median %f, 70th percentile %f", sd_array[median], sd_array[perc70]);
+//			slurmctld_diag_stats.avg_slowdown = sd_array[perc70];
+		}
+#endif
+        	int free_nodes = bit_set_count(idle_node_bitmap);
+	  	int queue_lenght = 0;
 
 		now = time(NULL);
                 START_TIMER;
