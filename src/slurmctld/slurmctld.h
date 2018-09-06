@@ -193,7 +193,15 @@ typedef struct diag_stats {
 	uint32_t last_backfilled_jobs;
 	/* Marco: malleability stats */
 	uint32_t malleable_backfilled;
+	uint32_t malleable_scheduled;
+#ifndef FEEDBACK_SLOWDOWN
+#define FEEDBACK_SLOWDOWN
+#endif
+#ifdef FEEDBACK_WAIT_TIME
 	double   avg_wait_time;
+#elif defined FEEDBACK_SLOWDOWN
+	double   avg_slowdown;
+#endif
 	uint32_t bf_cycle_counter;
 	uint32_t bf_cycle_last;
 	uint32_t bf_cycle_max;
