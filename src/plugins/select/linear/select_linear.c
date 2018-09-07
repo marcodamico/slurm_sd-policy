@@ -967,40 +967,57 @@ job_unit_t **filter_and_evaluate_jobs(struct job_record *job_ptr, int *njobs, bi
  * level: actual recursion level 
  * best_solution: init to NULL the vector */
 static double _pick_mates_recursive(job_unit_t **useful_jobs,
-				 job_unit_t **solution, job_unit_t **best_solution,
-				 int max_njobs, int max_level, int level, 
-				 bitstr_t *tmp_bitmap, bitstr_t *best_bitmap, bitstr_t *bitmap, 
-				 int *nmates, bool exceed_alloc, int req_nodes)
+                                 job_unit_t **solution, job_unit_t **best_solution,
+                                 int max_njobs, int max_level, int level, double *best,
+                                 bitstr_t *tmp_bitmap, bitstr_t *best_bitmap, bitstr_t *bitmap,
+                                 int *nmates, bool exceed_alloc, int req_nodes)
 {
         int i, j, last, tmp_nodes;
-        double best = -1, evaluation;
+        double evaluation;
         bitstr_t *original_bitmap;
         if (level == max_level) {
                 debug3("max level, map size %d", (bit_set_count(tmp_bitmap)));
-                if (bit_set_count(tmp_bitmap) >= req_nodes)
-                        return evaluate_solution(solution, level);
-                else
+                if ((exceed_alloc && bit_set_count(tmp_bitmap) > req_nodes) ||
+                    (bit_set_count(tmp_bitmap) == req_nodes))
+			return evaluate_solution(solution, level);
+		else
                         return -1;
         }
-        if(bit_set_count(tmp_bitmap) >= req_nodes) {
+	//cut branch if already got number of nodes
+        if((exceed_alloc && bit_set_count(tmp_bitmap) >= req_nodes) ||
+	   (bit_set_count(tmp_bitmap) == req_nodes)) {
                 return evaluate_solution(solution, level);
         }
-	original_bitmap = bit_alloc(bit_size(bitmap));
-        for (i = 0; i < max_njobs; i++) {
+	original_bitmap = bit_alloc(bit_size(tmp_bitmap));
+	bit_copybits(original_bitmap, tmp_bitmap);
+
+	/* change solution to save indexes of picked jobs
+	 * se we don't need to find the index of the last
+	 * picked job */
+	if (level == 0)
+		i = 0;
+	else {
+		for (j = 0; j < max_njobs; j++)
+			if (solution[level-1] == useful_jobs[j]) {
+				i = j;
+				break;
+			}
+		if (j == max_njobs)
+			error("_pick_mates_recursive: Mate not found in useful_jobs!");
+        }
+	for (; i < max_njobs; i++) {
                 /* check if already picked */
-                for (j = 0; j < level; j++)
-                        if (solution[j] == useful_jobs[i])
-                                break;
-                if (j < level && level != 0)
-                        continue;
+              //  for (j = 0; j < level; j++)
+              //          if (solution[j] == useful_jobs[i])
+              //                  break;
+              //  if (j < level && level != 0)
+              //          continue;
 
                 //debug3("job %d", useful_jobs[i]->job_ptr->job_id);
-		tmp_nodes = bit_set_count(tmp_bitmap);
-		if ((tmp_nodes + useful_jobs[i]->job_ptr->node_cnt)  > req_nodes) {
-			if (!exceed_alloc)
-				continue;
-			bit_copybits(original_bitmap, tmp_bitmap);
-			j = bit_ffs(useful_jobs[i]->job_ptr->node_bitmap);
+                if ((tmp_nodes + useful_jobs[i]->job_ptr->node_cnt)  > req_nodes) {
+                        if (!exceed_alloc)
+                                continue;
+                        j = bit_ffs(useful_jobs[i]->job_ptr->node_bitmap);
                         last = bit_fls(useful_jobs[i]->job_ptr->node_bitmap);
                         while(tmp_nodes < req_nodes && j <= last) {
                                 if(bit_test(useful_jobs[i]->job_ptr->node_bitmap, j) && !bit_test(tmp_bitmap, j) && bit_test(bitmap, j)) {
@@ -1011,63 +1028,65 @@ static double _pick_mates_recursive(job_unit_t **useful_jobs,
                         }
                         debug3("partially took job %d", useful_jobs[i]->job_ptr->job_id);
                 }
-		else {
-			bit_copybits(original_bitmap, tmp_bitmap);
-			bit_or(tmp_bitmap, useful_jobs[i]->job_ptr->node_bitmap);
-                	bit_and(tmp_bitmap, bitmap);
-		}
-		solution[level] = useful_jobs[i];
-		//debug3("took job, map size %d", (bit_set_count(tmp_bitmap)));
-		evaluation = _pick_mates_recursive(useful_jobs, solution, best_solution,
-						   max_njobs, max_level, level +1,
-						   tmp_bitmap, best_bitmap, bitmap,
-						   nmates, exceed_alloc, req_nodes);
-		debug3("Got %f", evaluation);
-		if (evaluation == -1)
-			goto backtrack_cont;
-		if (evaluation < best || best == -1) {
-			best = evaluation;
+                else {
+			//add mate nodes
+                        bit_or(tmp_bitmap, useful_jobs[i]->job_ptr->node_bitmap);
+                        //filter with only usable nodes
+			bit_and(tmp_bitmap, bitmap);
+                }
+                solution[level] = useful_jobs[i];
+                //debug3("took job, map size %d", (bit_set_count(tmp_bitmap)));
+                evaluation = _pick_mates_recursive(useful_jobs, solution, best_solution,
+                                                   max_njobs, max_level, level +1, best,
+                                                   tmp_bitmap, best_bitmap, bitmap,
+                                                   nmates, exceed_alloc, req_nodes);
+                //debug2("Got %f", evaluation);
+                if (evaluation == -1)
+                        goto backtrack_cont;
+                if (evaluation < *best || *best == -1) {
+                        *best = evaluation;
                         debug2("Got a better solution!");
 			for (j = 0; j < level+1; j++) {
                         	best_solution[j] = solution[j];
 				debug("%d", best_solution[j]->job_ptr->job_id);
 			}
                         bit_copybits(best_bitmap, tmp_bitmap);
-			debug3("size %d", bit_set_count(best_bitmap));
-		        *nmates = level+1;
+                        debug2("size %d", bit_set_count(best_bitmap));
+                        *nmates = level+1;
                 }
 backtrack_cont:
-                solution[level] = NULL;
+                solution[level] = NULL; //TODO: non serve
                 bit_copybits(tmp_bitmap, original_bitmap);
         }
 	FREE_NULL_BITMAP(original_bitmap);
-        return best;
+        return -1;
 }
 
 
 /* Recursive version:
- * max_jobs: number of maximum jobs in the solution
+ * max_level: number of maximum jobs in the solution and level in recursion
  * njobs: number of jobs to consider when iterating in ordered job list
  */
-static job_unit_t **_find_mates_recursive(job_unit_t **useful_jobs, int max_jobs, int njobs, int req_nodes, bitstr_t *best_bitmap, bitstr_t * bitmap, bitstr_t *free_nodes_map, int *nmates, bool exceed_alloc)
+static job_unit_t **_find_mates_recursive(job_unit_t **useful_jobs, int max_level, int njobs, int req_nodes, bitstr_t *best_bitmap, bitstr_t * bitmap, bitstr_t *free_nodes_map, int *nmates, bool exceed_alloc)
 {
 
-	job_unit_t **solution = xmalloc(sizeof(job_unit_t *) * max_jobs);
-        job_unit_t **best_solution = xmalloc(sizeof(job_unit_t *) * max_jobs);
+        job_unit_t **solution = xmalloc(sizeof(job_unit_t *) * max_level);
+        job_unit_t **best_solution = xmalloc(sizeof(job_unit_t *) * max_level);
         int i;
 	bitstr_t *tmp_bitmap = bit_alloc(bit_size(bitmap));
+	double best = -1;
         debug2("In _find_mates_recursive");
 
         if (free_nodes_map != NULL) {
                 bit_or(tmp_bitmap, free_nodes_map);
         }
-        for (i = 0; i < max_jobs; i++)
+        for (i = 0; i < max_level; i++)
                 best_solution[i] = NULL;
         _pick_mates_recursive(useful_jobs, solution, best_solution,
-                                     njobs, max_jobs, 0,
+                                     nmates_to_check, max_level, 0, &best,
                                      tmp_bitmap, best_bitmap, bitmap,
                                      nmates, exceed_alloc, req_nodes);
-        FREE_NULL_BITMAP(tmp_bitmap);
+	FREE_NULL_BITMAP(tmp_bitmap);
 	xfree(solution);
         return best_solution;
 }
@@ -1158,7 +1177,7 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
                           uint32_t min_nodes, uint32_t max_nodes,
                           uint32_t req_nodes)
 {
-        int rc = EINVAL, i, max_share = 2, nmates = 0;
+        int rc = EINVAL, i, max_level = 2, nmates = 0;
         int njobs;
 	job_unit_t **useful_jobs, **best_solution = NULL;//, **current_solution;
 	//double best_evaluation = MAX_SLOWDOWN * MAX_SLOWDOWN, current_evaluation;
@@ -1173,6 +1192,7 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
         debug3("bitmap after filter_and_evaluate_jobs: %s", bit_fmt_hexmask(bitmap));
         debug3("Got %d jobs, sorting...", njobs);
         if (njobs == 0) {
+		bit_clear_all(bitmap);
 		xfree(useful_jobs);
                 debug("No mates avaiable");
                 return rc;
@@ -1204,11 +1224,12 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 	}
 */
         clock_t start = clock(), diff;
-        best_solution = _find_mates_recursive(useful_jobs, max_share, njobs, req_nodes, best_bitmap, bitmap, NULL, &nmates, false);
+        best_solution = _find_mates_recursive(useful_jobs, max_level, njobs, req_nodes, best_bitmap, bitmap, NULL, &nmates, false);
         if(best_solution && best_solution[0] != NULL) {
                 debug3("Found mates!");
 		/*TODO: why not bit_copy*/
                 bit_and(bitmap, best_bitmap);
+<<<<<<< HEAD
 		debug3("bitmap solution: %s", bit_fmt_hexmask(bitmap));
 		//update time limits
 		for (i = 0; i < nmates; i++) {
@@ -3785,15 +3806,16 @@ req_nodes);
                                       DROM_MALLEABILITY,
                                       NO_SHARE_LIMIT,
                                       SELECT_MODE_RUN_NOW);
-		debug2("usable nodes for malleable scheduling: %d", j);
-		rc = _find_job_mates(job_ptr, bitmap, 
-				     free_nodes_map, min_nodes,
-				     max_nodes, req_nodes);
-//		rc = _job_test(job_ptr, bitmap, min_nodes,
-//                                       max_nodes, req_nodes);
-		goto top;
-	}
-	/* Marco: normal / oversubscription case */ 
+                debug2("usable nodes for malleable scheduling: %d", j);
+                rc = _find_job_mates(job_ptr, bitmap,
+                                     free_nodes_map, min_nodes,
+                                     max_nodes, req_nodes);
+                if(rc == SLURM_SUCCESS && bit_set_count(bitmap) >= min_nodes)
+			rc = _job_test(job_ptr, bitmap, min_nodes,
+                                       max_nodes, req_nodes);
+                goto top;
+        }
+	/* Marco: normal / oversubscription case */
 	for (max_run_job=0; ((max_run_job<max_share) && (rc != SLURM_SUCCESS));
 	     max_run_job++) {
 		bool last_iteration = (max_run_job == (max_share - 1));
