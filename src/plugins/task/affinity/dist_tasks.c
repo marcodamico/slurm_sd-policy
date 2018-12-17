@@ -494,7 +494,7 @@ int steal_cpus_from_proc(int index, int proc_index, cpu_steal_info_t *steal_info
 	//or steal one socket first and redistribute
         for(i = ncpus - 1; i >= 0; i--) {
 		cpuset_to_str(steal_mask, str);
-		debug("steal_mask: %s", str);
+		debug3("steal_mask: %s", str);
                 if(stolen == to_steal) {
                 	debug("got %d CPUs, exiting steal_cpus_from_proc", stolen);
 		        break;
@@ -596,11 +596,11 @@ List steal_cpus(cpu_steal_info_t *steal_infos, int final_steal, cpu_set_t *confl
 			int index = ordered_procs[cpu_steal_infos[j]->ntasks - 1 - i];
 			CPU_AND(&steal_mask, &cpu_steal_infos[j]->assigned_mask[index], conflict_mask);
                 	cpuset_to_str(&steal_mask, str);
-                	debug("steal_mask: %s", str);	
+                	debug3("steal_mask: %s", str);	
 			cpuset_to_str(&cpu_steal_infos[j]->assigned_mask[index], str);
-                        debug("assigned_mask: %s", str);
+                        debug3("assigned_mask: %s", str);
 			cpuset_to_str(conflict_mask, str);
-                        debug("conflict_mask: %s", str);
+                        debug3("conflict_mask: %s", str);
 			to_steal = values[j] > 1 ? values[j] : 1;
 			//TODO: try: steal one per time instead of getting it from values vector
 			to_steal = 1;
@@ -763,13 +763,12 @@ int DLB_Drom_steal_cpus(launch_tasks_request_msg_t *req, uint32_t node_id) {
 	slurm_ctl_conf_t *config;	
 	
 	debug("In DLB_Drom_steal_cpus");
-
 	debug("n active jobs: %d",n_active_jobs);
 	//TODO:make SF dynamic?
 	config = slurm_conf_lock();
 	DLB_share_factor = config->sharing_factor;
 	slurm_conf_unlock();
-	debug("share factor: %lf", DLB_share_factor);
+	//debug("share factor: %lf", DLB_share_factor);
 //	slurm_free_partition_info_msg(part_ptr);
 	cpu_steal_info_init(&steal_infos);
 
@@ -1571,7 +1570,7 @@ void lllp_distribution(launch_tasks_request_msg_t *req, uint32_t node_id)
 		bitstr_to_cpuset(&cpu_steal_infos[n_active_jobs-1]->assigned_mask[i], masks[i], ncpus);
 	}
 	debug("Assigned mask, auto generated case:");
-	print_cpu_steal_info(cpu_steal_infos[n_active_jobs-1]);
+	//print_cpu_steal_info(cpu_steal_infos[n_active_jobs-1]);
 	
 	debug("extrae info generation");
 	int cpu_id, cpu_count;

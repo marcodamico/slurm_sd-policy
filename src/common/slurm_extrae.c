@@ -399,7 +399,7 @@ static int _print_extrae_threads()
 int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id)
 {
 	int app_id;
-	debug("In slurmd_extrae_start_thread\n");
+	debug2("In slurmd_extrae_start_thread\n");
 	if (slurmd_extrae_stop_thread(cpu_id) != SLURM_SUCCESS) {
 		debug("Error in slurmd_extrae_stop_thread");
 		return SLURM_ERROR;
@@ -416,7 +416,7 @@ int slurmd_extrae_start_thread(int job_id, int cpu_id, int task_id, int th_id)
 
 int slurmd_extrae_stop_thread(int cpu_id)
 {
-	debug("In slurmd_extrae_stop_thread\n");
+	debug2("In slurmd_extrae_stop_thread\n");
 
 	if(extrae_threads[cpu_id].job_id == -1)
 		return SLURM_SUCCESS;

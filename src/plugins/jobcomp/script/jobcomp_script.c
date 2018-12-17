@@ -271,9 +271,9 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 		j->malleable_sched = 1;
 		ListIterator itr = list_iterator_create(job->mates_list);
 		uint32_t *value = (uint32_t *)list_next(itr);
-		sprintf(j->mates_list, "%u", *value);
+		sprintf(j->mates_list, "%lu", *value);
 		while ((value = (uint32_t *) list_next(itr)))
-			sprintf(j->mates_list, "%s;%u",j->mates_list, *value);
+			sprintf(j->mates_list, "%s;%lu",j->mates_list, *value);
 		list_iterator_destroy(itr);
 	}
 	else {

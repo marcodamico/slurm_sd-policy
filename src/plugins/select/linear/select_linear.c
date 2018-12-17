@@ -1073,6 +1073,7 @@ static job_unit_t **_find_mates_recursive(job_unit_t **useful_jobs, int max_leve
         job_unit_t **solution = xmalloc(sizeof(job_unit_t *) * max_level);
         job_unit_t **best_solution = xmalloc(sizeof(job_unit_t *) * max_level);
         int i;
+	int nmates_to_check = njobs;
 	bitstr_t *tmp_bitmap = bit_alloc(bit_size(bitmap));
 	double best = -1;
         debug2("In _find_mates_recursive");
@@ -1229,7 +1230,6 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
                 debug3("Found mates!");
 		/*TODO: why not bit_copy*/
                 bit_and(bitmap, best_bitmap);
-<<<<<<< HEAD
 		debug3("bitmap solution: %s", bit_fmt_hexmask(bitmap));
 		//update time limits
 		for (i = 0; i < nmates; i++) {
@@ -1238,9 +1238,9 @@ static int _find_job_mates(struct job_record *job_ptr, bitstr_t *bitmap,
 			list_append(job_ptr->mates_list, &best_solution[i]->job_ptr->job_id);
 			best_solution[i]->job_ptr->lent_for_malleability++;
 		}
-		debug2("picked mates list:");
+		debug("picked mates list:");
 		for (i = 0; i < nmates; i++) {
-                        debug2("job %d, sd prediction %f, nodes %d, new time limit %d", 
+                        debug("job %d, sd prediction %f, nodes %d, new time limit %d", 
 			      best_solution[i]->job_ptr->job_id, best_solution[i]->slowdown, 
 			      best_solution[i]->job_ptr->node_cnt, best_solution[i]->time_limit);
 		}
