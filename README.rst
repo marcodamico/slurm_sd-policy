@@ -1,3 +1,5 @@
+Copyright 2018,2019 Marco D'Amico, All rights reserved.
+
 Slurm Workload Manager
 --------------------------------------------------------
 
